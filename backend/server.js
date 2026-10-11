@@ -8,6 +8,8 @@ import http from 'node:http';
 import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
 import { Message } from './models/user.js';
+import { extractMentions } from './utils/mentions.js';
+import { SEARCH_PAGE_SIZE, buildSearchFilter } from './utils/search.js';
 
 const REDIS_CHAT_CHANNEL = 'CHAT_ROOMS';
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -37,9 +39,15 @@ subClient.on('message', (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
 
   try {
-    const { room, sender, senderId, text, timestamp } = JSON.parse(message);
+    const { room, sender, senderId, text, mentions, timestamp } = JSON.parse(message);
     if (room && typeof sender === 'string' && typeof text === 'string') {
-      io.to(room).emit('receive_message', { sender, senderId, text, timestamp });
+      io.to(room).emit('receive_message', {
+        sender,
+        senderId,
+        text,
+        mentions: Array.isArray(mentions) ? mentions : [],
+        timestamp,
+      });
     }
   } catch (error) {
     console.error(`Invalid Redis chat payload: ${error.message}`);
@@ -71,12 +79,14 @@ io.on('connection', (socket) => {
     if (!room || !sender || !text) return;
 
     try {
-      const newMessage = await Message.create({ room, sender, senderId, text });
+      const mentions = extractMentions(text);
+      const newMessage = await Message.create({ room, sender, senderId, text, mentions });
       await pubClient.publish(REDIS_CHAT_CHANNEL, JSON.stringify({
         room,
         sender,
         senderId,
         text,
+        mentions,
         timestamp: newMessage.timestamp,
       }));
     } catch (error) {
@@ -86,6 +96,31 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
+});
+
+app.get('/api/search', async (req, res) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set({ 'Access-Control-Allow-Origin': origin, Vary: 'Origin' });
+  }
+
+  const { filter, error } = buildSearchFilter(req.query);
+  if (error) return res.status(400).json({ error });
+
+  try {
+    const found = await Message.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(SEARCH_PAGE_SIZE + 1)
+      .lean();
+    const hasMore = found.length > SEARCH_PAGE_SIZE;
+    const messages = found.slice(0, SEARCH_PAGE_SIZE).map(({ sender, senderId, text, timestamp, createdAt }) => (
+      { sender, senderId, text, timestamp, createdAt }
+    ));
+    res.json({ messages, hasMore });
+  } catch (searchError) {
+    console.error(`Message search failed: ${searchError.message}`);
+    res.status(500).json({ error: 'Search failed.' });
+  }
 });
 
 app.get('/health', (_req, res) => {

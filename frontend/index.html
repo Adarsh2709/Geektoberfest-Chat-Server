@@ -28,7 +28,8 @@
             <input id="room-input" aria-label="Room name" maxlength="32" value="general" />
             <button id="join-button" class="join-button" type="button" title="Join room" aria-label="Join room">↵</button>
           </div>
-          <p class="room-hint">Choose a room and say hello.</p>
+          <p class="room-hint">Choose a room and say hello. Mention someone with @name (no spaces).</p>
+          <button id="alerts-button" class="message-action" type="button" hidden>Enable desktop alerts</button>
           <div class="rail-bottom">
             <span class="online-dot" aria-hidden="true"></span>
             <span id="connection-label">Connecting</span>
@@ -41,8 +42,24 @@
               <div class="eyebrow">ROOM</div>
               <h1><span class="heading-hash">#</span><span id="room-title">general</span></h1>
             </div>
+            <form id="search-form" class="search-form" role="search">
+              <label class="sr-only" for="search-input">Search messages by keyword</label>
+              <input id="search-input" type="search" maxlength="100" placeholder="Search messages" autocomplete="off" />
+              <label class="sr-only" for="search-user">Only messages from this user</label>
+              <input id="search-user" type="search" maxlength="24" placeholder="From user" autocomplete="off" />
+              <button class="search-button" type="submit" aria-label="Search" title="Search">⌕</button>
+            </form>
             <div class="people-count"><span class="people-icon" aria-hidden="true">••</span> Live chat</div>
           </div>
+
+          <section id="search-results" class="search-results" aria-label="Search results" hidden>
+            <div class="search-results-header">
+              <span id="search-summary"></span>
+              <button id="search-close" class="message-action" type="button">Close</button>
+            </div>
+            <ul id="search-list" class="search-list"></ul>
+            <button id="search-more" class="message-action" type="button" hidden>Show older results</button>
+          </section>
 
           <div id="message-list" class="message-list" role="log" aria-live="polite" aria-relevant="additions text">
             <div class="welcome-note">
