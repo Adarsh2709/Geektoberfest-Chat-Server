@@ -2,7 +2,7 @@ import { io } from 'socket.io-client';
 import './style.css';
 
 const serverUrl = import.meta.env.VITE_CHAT_SERVER_URL
-  || (import.meta.env.PROD ? window.location.origin : 'http://localhost:5000');
+  || (import.meta.env.PROD ? 'https://chat-server-d0e8.onrender.com' : 'http://localhost:5000');
 const socket = io(serverUrl, { autoConnect: false, transports: ['websocket'] });
 
 const messageList = document.querySelector('#message-list');

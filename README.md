@@ -17,9 +17,9 @@ The root `render.yaml` defines a Node web service rooted at `backend/`. Create a
 
 ### Vercel services
 
-Create a Vercel project from this repository with the repository root as its Root Directory. The root `vercel.json` builds `frontend/` and `backend/` as separate services. Requests to `/socket.io/` are routed to the backend; all other paths go to the frontend. The frontend connects to the same Vercel origin in production, so leave `VITE_CHAT_SERVER_URL` unset for this deployment. The existing `frontend/vercel.json` remains available when deploying the frontend as a separate Vercel project.
+For a separate Render backend and Vercel frontend, set the Vercel project's Root Directory to `frontend` and set `VITE_CHAT_SERVER_URL` to `https://chat-server-d0e8.onrender.com` (or your Render service URL). Set Render's `FRONTEND_ORIGIN` to the exact deployed Vercel origin. The frontend defaults to this repository's Render URL in production, but the environment variable can override it.
 
-Set `MONGO_URL` and `REDIS_URL` in the Vercel project environment. Set `FRONTEND_ORIGIN` to the deployed Vercel origin (for example, `https://your-project.vercel.app`, without a trailing slash); include any preview origins that need access, separated by commas. Vercel service bindings are not needed because the browser uses the public same-origin Socket.IO rewrite and the backend does not call another Vercel service.
+For a single Vercel project using the root `vercel.json`, set the repository root as the Root Directory. It builds `frontend/` and `backend/` as services, routes `/socket.io/` to the backend, and sends other paths to the frontend; leave `VITE_CHAT_SERVER_URL` unset so the browser connects to the same origin. Configure `MONGO_URL`, `REDIS_URL`, and `FRONTEND_ORIGIN` for the backend service. Service bindings are not needed because the browser uses the public Socket.IO rewrite and the backend does not call another Vercel service.
 
 Keep credentials in Render/Vercel environment settings. Do not commit `.env` files.
 
