@@ -1,22 +1,55 @@
 import { io } from "socket.io-client";
 import readline from "readline";
 
-console.log("Connecting directly to Socket.io backend...");
-
-// Bypasses local DNS resolution glitches by forcing standard polling-first handshakes
-const socket = io("https://chat-server-2-fzyd.onrender.com", {
-  transports: ["polling", "websocket"],
-  forceNew: true,
-  autoConnect: true
-});
+const SERVER_URL = process.env.CHAT_SERVER_URL || "https://chat-server-2-fzyd.onrender.com";
 
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout
 });
+const ask = (question) => new Promise((resolve) => rl.question(question, resolve));
 
 let username = "";
 let room = "";
+
+// Logs in (or registers) over HTTP and returns the token the socket handshake requires
+async function authenticate() {
+  const choice = (await ask("Log in or register? (l/r): ")).trim().toLowerCase();
+  const mode = choice.startsWith("r") ? "register" : "login";
+  const name = (await ask("Username: ")).trim();
+  const password = await ask("Password: ");
+
+  try {
+    const response = await fetch(`${SERVER_URL}/api/auth/${mode}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: name, password })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error(`\n ${data.error || "Authentication failed."}\n`);
+      return authenticate();
+    }
+
+    username = data.user.username;
+    return data.token;
+  } catch (err) {
+    console.error(`\n Can't reach ${SERVER_URL}: ${err.message}\n`);
+    return authenticate();
+  }
+}
+
+const token = await authenticate();
+
+console.log("Connecting directly to Socket.io backend...");
+
+// Bypasses local DNS resolution glitches by forcing standard polling-first handshakes
+const socket = io(SERVER_URL, {
+  transports: ["polling", "websocket"],
+  forceNew: true,
+  autoConnect: true,
+  auth: { token }
+});
 
 socket.on("connect_error", (err) => {
   console.error("\n Handshake failed:", err.message);
@@ -52,22 +85,17 @@ socket.on("recieve_message", (data) => {
 });
 
 function initSession() {
-  rl.question("Choose Username: ", (u) => {
-    username = u.trim();
-    if (!username) return initSession();
+  rl.question("Enter Room Name: ", (r) => {
+    room = r.trim();
+    if (!room) return initSession();
 
-    rl.question("Enter Room Name: ", (r) => {
-      room = r.trim();
-      if (!room) return initSession();
+    // Fire backend room assignment
+    socket.emit("join_room", room);
+    console.log(`\n--- Inside Room: ${room} ---`);
 
-      // Fire backend room assignment
-      socket.emit("join_room", room);
-      console.log(`\n--- Inside Room: ${room} ---`);
-      
-      rl.setPrompt(`${username}> `);
-      rl.prompt();
-      handleTyping();
-    });
+    rl.setPrompt(`${username}> `);
+    rl.prompt();
+    handleTyping();
   });
 }
 
@@ -75,10 +103,9 @@ function handleTyping() {
   rl.on("line", (line) => {
     const messageText = line.trim();
     if (messageText) {
-      // Matches the const { room, sender, text } object unpack structure in server.js
+      // The server fills in the sender from the authenticated socket
       socket.emit("send_message", {
         room: room,
-        sender: username,
         text: messageText
       });
     }

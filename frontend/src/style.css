@@ -29,6 +29,7 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 
 #app { min-height: 100vh; }
+[hidden] { display: none !important; }
 
 .topbar {
   height: 76px;
@@ -83,7 +84,22 @@ button { cursor: pointer; }
 }
 
 .identity-dot { width: 27px; height: 27px; font-size: 11px; }
-.identity-field input { width: 95px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 13px; }
+.identity-name { max-width: 120px; overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.logout-button { padding: 4px 10px; border: 0; border-radius: 14px; background: #eaf1e9; color: var(--green); font-size: 12px; font-weight: 600; transition: background .18s ease; }
+.logout-button:hover { background: #dceadd; }
+
+.auth-shell { display: grid; min-height: calc(100vh - 76px); place-items: center; padding: 25px; }
+.auth-card { display: flex; width: min(380px, 100%); flex-direction: column; gap: 15px; padding: 31px; border: 1px solid #e7ebe5; border-radius: 13px; background: var(--paper); box-shadow: 0 18px 55px rgba(53, 70, 57, .07); animation: rise-in .45s ease-out both; }
+.auth-card h1 { margin: -8px 0 4px; font: 700 20px 'Manrope', sans-serif; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; color: #66716a; font-size: 12px; font-weight: 600; }
+.auth-field input { padding: 10px 12px; border: 1px solid #e5eae4; border-radius: 9px; outline: 0; color: var(--ink); font-size: 14px; transition: border-color .18s ease, box-shadow .18s ease; }
+.auth-field input:focus { border-color: #a4c2a8; box-shadow: 0 0 0 3px rgba(93, 142, 102, .09); }
+.auth-submit { padding: 11px; border: 0; border-radius: 9px; background: var(--green); color: white; font-weight: 600; transition: transform .18s ease, background .18s ease; }
+.auth-submit:hover { transform: translateY(-1px); background: #28583f; }
+.auth-submit:disabled { cursor: wait; opacity: .7; }
+.auth-switch { margin: 0; color: #929b94; font-size: 12px; text-align: center; }
+.auth-switch button { padding: 0; border: 0; background: none; color: var(--green); font-weight: 600; text-decoration: underline; }
+.auth-card .notice { min-height: 0; padding: 0; }
 
 .chat-shell {
   display: grid;
@@ -196,6 +212,8 @@ button { cursor: pointer; }
 @media (max-width: 640px) {
   .topbar { height: 64px; padding: 0 17px; }
   .topbar-note { display: none; }
+  .auth-shell { min-height: calc(100vh - 64px); padding: 15px 10px; }
+  .identity-name { max-width: 80px; }
   .chat-shell { grid-template-columns: 1fr; width: calc(100% - 20px); height: calc(100vh - 78px); min-height: 390px; margin: 10px auto; border-radius: 10px; }
   .room-rail { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-right: 0; border-bottom: 1px solid var(--line); }
   .rail-heading { display: none; }

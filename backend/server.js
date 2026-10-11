@@ -2,12 +2,14 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
+import cors from 'cors';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
 import http from 'node:http';
 import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
 import { Message } from './models/user.js';
+import { authRouter, authenticateSocket, getJwtSecret } from './auth.js';
 
 const REDIS_CHAT_CHANNEL = 'CHAT_ROOMS';
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -32,6 +34,10 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
 });
+app.set('io', io);
+app.use('/api', cors({ origin: allowedOrigins }));
+app.use('/api/auth', authRouter);
+io.use(authenticateSocket);
 
 subClient.on('message', (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
@@ -47,7 +53,10 @@ subClient.on('message', (channel, message) => {
 });
 
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  const { id: senderId, username: sender } = socket.data.user;
+  console.log(`User connected: ${sender} (${socket.id})`);
+  // Lets logout disconnect every socket belonging to this user.
+  socket.join(`user:${senderId}`);
 
   socket.on('join_room', async (roomName) => {
     if (typeof roomName !== 'string' || !roomName.trim()) return;
@@ -63,12 +72,11 @@ io.on('connection', (socket) => {
     }
   });
 
+  // The sender always comes from the authenticated socket, never from the payload.
   socket.on('send_message', async (data) => {
     const room = typeof data?.room === 'string' ? data.room.trim().slice(0, 32) : '';
-    const sender = typeof data?.sender === 'string' ? data.sender.trim().slice(0, 24) : '';
-    const senderId = typeof data?.senderId === 'string' ? data.senderId.slice(0, 64) : '';
     const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 1000) : '';
-    if (!room || !sender || !text) return;
+    if (!room || !text) return;
 
     try {
       const newMessage = await Message.create({ room, sender, senderId, text });
@@ -85,7 +93,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
+  socket.on('disconnect', () => console.log(`User disconnected: ${sender} (${socket.id})`));
 });
 
 app.get('/health', (_req, res) => {
@@ -97,6 +105,7 @@ app.get('/health', (_req, res) => {
 
 async function start() {
   try {
+    getJwtSecret();
     await connectDB();
     await Promise.all([pubClient.connect(), subClient.connect()]);
     await subClient.subscribe(REDIS_CHAT_CHANNEL);
