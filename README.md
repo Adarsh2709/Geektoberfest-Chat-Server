@@ -15,11 +15,11 @@ Realtime chat app with a Vite frontend and an Express/Socket.IO backend. MongoDB
 
 The root `render.yaml` defines a Node web service rooted at `backend/`. Create a Render Blueprint from this repository and provide `MONGO_URL`, `REDIS_URL`, and `FRONTEND_ORIGIN` when prompted. Render supplies `PORT`; the backend binds to it and exposes `/health` for health checks.
 
-### Vercel frontend
+### Vercel services
 
-Create a Vercel project from this repository with `frontend/` as its Root Directory. `frontend/vercel.json` configures the Vite build and `dist` output. Set `VITE_CHAT_SERVER_URL` to the public Render service URL (for example, `https://chat-server-api.onrender.com`).
+Create a Vercel project from this repository with the repository root as its Root Directory. The root `vercel.json` builds `frontend/` and `backend/` as separate services. Requests to `/socket.io/` are routed to the backend; all other paths go to the frontend. The frontend connects to the same Vercel origin in production, so leave `VITE_CHAT_SERVER_URL` unset for this deployment. The existing `frontend/vercel.json` remains available when deploying the frontend as a separate Vercel project.
 
-Set Render's `FRONTEND_ORIGIN` to the deployed Vercel origin (for example, `https://your-project.vercel.app`, without a trailing slash). For a Vercel preview URL, add that origin too, separated by a comma.
+Set `MONGO_URL` and `REDIS_URL` in the Vercel project environment. Set `FRONTEND_ORIGIN` to the deployed Vercel origin (for example, `https://your-project.vercel.app`, without a trailing slash); include any preview origins that need access, separated by commas. Vercel service bindings are not needed because the browser uses the public same-origin Socket.IO rewrite and the backend does not call another Vercel service.
 
 Keep credentials in Render/Vercel environment settings. Do not commit `.env` files.
 
