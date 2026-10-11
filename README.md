@@ -17,7 +17,7 @@ The root `render.yaml` defines a Node web service rooted at `backend/`. Create a
 
 ### Vercel services
 
-For a separate Render backend and Vercel frontend, set the Vercel project's Root Directory to `frontend` and set `VITE_CHAT_SERVER_URL` to `https://chat-server-d0e8.onrender.com` (or your Render service URL). Set Render's `FRONTEND_ORIGIN` to the exact deployed Vercel origin. The frontend defaults to this repository's Render URL in production, but the environment variable can override it.
+For a separate Render backend and Vercel frontend, set the Vercel project's Root Directory to `frontend` and set `VITE_CHAT_SERVER_URL` to `https://chat-server-2-fzyd.onrender.com` (or your Render service URL). Set Render's `FRONTEND_ORIGIN` to the exact deployed Vercel origin. The frontend defaults to this repository's Render URL in production, but the environment variable can override it.
 
 For a single Vercel project using the root `vercel.json`, set the repository root as the Root Directory. It builds `frontend/` and `backend/` as services, routes `/socket.io/` to the backend, and sends other paths to the frontend; leave `VITE_CHAT_SERVER_URL` unset so the browser connects to the same origin. Configure `MONGO_URL`, `REDIS_URL`, and `FRONTEND_ORIGIN` for the backend service. Service bindings are not needed because the browser uses the public Socket.IO rewrite and the backend does not call another Vercel service.
 

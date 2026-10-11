@@ -37,9 +37,9 @@ subClient.on('message', (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
 
   try {
-    const { room, sender, text, timestamp } = JSON.parse(message);
+    const { room, sender, senderId, text, timestamp } = JSON.parse(message);
     if (room && typeof sender === 'string' && typeof text === 'string') {
-      io.to(room).emit('receive_message', { sender, text, timestamp });
+      io.to(room).emit('receive_message', { sender, senderId, text, timestamp });
     }
   } catch (error) {
     console.error(`Invalid Redis chat payload: ${error.message}`);
@@ -66,14 +66,16 @@ io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     const room = typeof data?.room === 'string' ? data.room.trim().slice(0, 32) : '';
     const sender = typeof data?.sender === 'string' ? data.sender.trim().slice(0, 24) : '';
+    const senderId = typeof data?.senderId === 'string' ? data.senderId.slice(0, 64) : '';
     const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 1000) : '';
     if (!room || !sender || !text) return;
 
     try {
-      const newMessage = await Message.create({ room, sender, text });
+      const newMessage = await Message.create({ room, sender, senderId, text });
       await pubClient.publish(REDIS_CHAT_CHANNEL, JSON.stringify({
         room,
         sender,
+        senderId,
         text,
         timestamp: newMessage.timestamp,
       }));

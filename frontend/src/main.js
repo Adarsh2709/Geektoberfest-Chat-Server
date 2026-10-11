@@ -2,8 +2,11 @@ import { io } from 'socket.io-client';
 import './style.css';
 
 const serverUrl = import.meta.env.VITE_CHAT_SERVER_URL
-  || (import.meta.env.PROD ? 'https://chat-server-d0e8.onrender.com' : 'http://localhost:5000');
+  || (import.meta.env.PROD ? 'https://chat-server-2-fzyd.onrender.com' : 'http://localhost:5000');
 const socket = io(serverUrl, { autoConnect: false, transports: ['websocket'] });
+const senderIdKey = 'gather-sender-id';
+const senderId = localStorage.getItem(senderIdKey) || crypto.randomUUID();
+localStorage.setItem(senderIdKey, senderId);
 
 const messageList = document.querySelector('#message-list');
 const messageForm = document.querySelector('#message-form');
@@ -31,7 +34,7 @@ function clearMessages() {
 function renderMessage(message) {
   const sender = String(message.sender || 'Someone');
   const text = String(message.text || '');
-  const isMine = sender === (nameInput.value.trim() || 'You');
+  const isMine = message.senderId === senderId;
   const row = document.createElement('article');
   row.className = `message-row${isMine ? ' is-mine' : ''}`;
 
@@ -114,7 +117,7 @@ messageForm.addEventListener('submit', (event) => {
     return;
   }
 
-  socket.emit('send_message', { room: currentRoom, sender, text });
+  socket.emit('send_message', { room: currentRoom, sender, senderId, text });
   messageInput.value = '';
   messageInput.focus();
 });
