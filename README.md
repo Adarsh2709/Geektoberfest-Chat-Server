@@ -21,6 +21,10 @@ For a separate Render backend and Vercel frontend, set the Vercel project's Root
 
 For a single Vercel project using the root `vercel.json`, set the repository root as the Root Directory. It builds `frontend/` and `backend/` as services, routes `/socket.io/` to the backend, and sends other paths to the frontend; leave `VITE_CHAT_SERVER_URL` unset so the browser connects to the same origin. Configure `MONGO_URL`, `REDIS_URL`, and `FRONTEND_ORIGIN` for the backend service. Service bindings are not needed because the browser uses the public Socket.IO rewrite and the backend does not call another Vercel service.
 
+### Saved profile and room
+
+The display name and the last room you joined are saved in the browser's local storage (`gather-display-name`, `gather-room`) and restored on reload; the avatar initial follows the display name. Clearing the name falls back to "You", and saved values are re-checked against the input length limits. Nothing is stored on the server.
+
 Keep credentials in Render/Vercel environment settings. Do not commit `.env` files.
 
 ## Issues for contributors
@@ -29,7 +33,7 @@ These are proposed improvements, not current deployment blockers. Pick one, open
 
 ### Good first issues
 
-- [ ] **Remember the display name:** Store the chosen display name in local storage and restore it on reload.
+- [x] **Remember the display name:** Store the chosen display name in local storage and restore it on reload.
 - [ ] **Improve connection feedback:** Show clear connecting, connected, reconnecting, and disconnected states; let users retry after an error.
 - [ ] **Empty and loading states:** Add useful UI while chat history loads and when a room has no messages.
 - [ ] **Room navigation:** Show recently joined rooms and make switching rooms easier on mobile.

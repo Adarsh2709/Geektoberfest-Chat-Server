@@ -4,6 +4,8 @@ import './style.css';
 const serverUrl = import.meta.env.VITE_CHAT_SERVER_URL
   || (import.meta.env.PROD ? 'https://chat-server-2-fzyd.onrender.com' : 'http://localhost:5000');
 const socket = io(serverUrl, { autoConnect: false, transports: ['websocket'] });
+const nameKey = 'gather-display-name';
+const roomKey = 'gather-room';
 const senderIdKey = 'gather-sender-id';
 const senderId = localStorage.getItem(senderIdKey) || crypto.randomUUID();
 localStorage.setItem(senderIdKey, senderId);
@@ -16,6 +18,24 @@ const roomInput = document.querySelector('#room-input');
 const roomTitle = document.querySelector('#room-title');
 const connectionLabel = document.querySelector('#connection-label');
 const notice = document.querySelector('#notice');
+
+// Restore the saved profile and room. Stored values are re-checked against the
+// input limits, since they can be edited or come from an older version.
+function readStored(key, maxLength) {
+  const value = (localStorage.getItem(key) || '').trim().slice(0, maxLength);
+  return value || null;
+}
+
+const identityDot = document.querySelector('.identity-dot');
+
+function updateIdentityDot() {
+  identityDot.textContent = (nameInput.value.trim() || 'You').slice(0, 1).toUpperCase();
+}
+
+nameInput.value = readStored(nameKey, nameInput.maxLength) || nameInput.value;
+roomInput.value = readStored(roomKey, roomInput.maxLength) || roomInput.value;
+roomTitle.textContent = roomInput.value.trim() || roomTitle.textContent;
+updateIdentityDot();
 
 let currentRoom = roomInput.value.trim() || 'general';
 
@@ -81,6 +101,7 @@ function joinRoom() {
   }
 
   currentRoom = nextRoom;
+  localStorage.setItem(roomKey, nextRoom);
   roomInput.value = nextRoom;
   roomTitle.textContent = nextRoom;
   clearMessages();
@@ -120,6 +141,13 @@ messageForm.addEventListener('submit', (event) => {
   socket.emit('send_message', { room: currentRoom, sender, senderId, text });
   messageInput.value = '';
   messageInput.focus();
+});
+
+nameInput.addEventListener('input', () => {
+  const name = nameInput.value.trim();
+  if (name) localStorage.setItem(nameKey, name);
+  else localStorage.removeItem(nameKey);
+  updateIdentityDot();
 });
 
 document.querySelector('#join-button').addEventListener('click', joinRoom);
