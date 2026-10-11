@@ -21,6 +21,10 @@ For a separate Render backend and Vercel frontend, set the Vercel project's Root
 
 For a single Vercel project using the root `vercel.json`, set the repository root as the Root Directory. It builds `frontend/` and `backend/` as services, routes `/socket.io/` to the backend, and sends other paths to the frontend; leave `VITE_CHAT_SERVER_URL` unset so the browser connects to the same origin. Configure `MONGO_URL`, `REDIS_URL`, and `FRONTEND_ORIGIN` for the backend service. Service bindings are not needed because the browser uses the public Socket.IO rewrite and the backend does not call another Vercel service.
 
+### Rate limits and shutdown
+
+The backend limits HTTP requests (120/min per IP), new socket connections (30/min per IP), messages (10 per 10s per socket) and room joins (20 per 10s per socket). Payloads over 16 KB are rejected, and rooms, display names, user IDs and messages are validated (type, length, control characters); invalid input gets a `chat_error` instead of being silently truncated. Limits are per backend instance. Set `TRUST_PROXY=true` behind a reverse proxy such as Render so limits use the real client address. On `SIGTERM`/`SIGINT` the server stops accepting connections, closes sockets, Redis and MongoDB, and exits (forced after 10s); `/health` returns 503 while shutting down. Run backend tests with `npm test` in `backend/`.
+
 Keep credentials in Render/Vercel environment settings. Do not commit `.env` files.
 
 ## Issues for contributors

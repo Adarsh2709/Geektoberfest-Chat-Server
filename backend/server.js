@@ -8,6 +8,8 @@ import http from 'node:http';
 import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
 import { Message } from './models/user.js';
+import { createRateLimiter } from './utils/rateLimiter.js';
+import { validateMessage, validateRoom } from './utils/validation.js';
 
 const REDIS_CHAT_CHANNEL = 'CHAT_ROOMS';
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -15,6 +17,13 @@ const allowedOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173,ht
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const trustProxy = process.env.TRUST_PROXY === 'true';
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+const MAX_PAYLOAD_BYTES = 16 * 1024;
+const httpLimiter = createRateLimiter({ windowMs: 60_000, max: 120 });
+const connectionLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
+const messageLimiter = createRateLimiter({ windowMs: 10_000, max: 10 });
+const joinLimiter = createRateLimiter({ windowMs: 10_000, max: 20 });
 const redisOptions = {
   lazyConnect: true,
   maxRetriesPerRequest: 1,
@@ -31,6 +40,31 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
+  maxHttpBufferSize: MAX_PAYLOAD_BYTES,
+});
+let shuttingDown = false;
+
+// Behind a reverse proxy (e.g. Render) set TRUST_PROXY=true so the proxy-appended
+// address is used instead of the proxy's own.
+function getClientIp(req) {
+  if (trustProxy) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded) return forwarded.split(',').pop().trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+app.use((req, res, next) => {
+  const { allowed, retryAfterMs } = httpLimiter.consume(getClientIp(req));
+  if (allowed) return next();
+  res.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
+  res.status(429).json({ status: 'Too Many Requests' });
+});
+
+io.use((socket, next) => {
+  if (shuttingDown) return next(new Error('Server is shutting down.'));
+  const { allowed } = connectionLimiter.consume(getClientIp(socket.request));
+  next(allowed ? undefined : new Error('Too many connection attempts. Try again shortly.'));
 });
 
 subClient.on('message', (channel, message) => {
@@ -50,8 +84,12 @@ io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
   socket.on('join_room', async (roomName) => {
-    if (typeof roomName !== 'string' || !roomName.trim()) return;
-    const room = roomName.trim().slice(0, 32);
+    if (!joinLimiter.consume(socket.id).allowed) {
+      return socket.emit('chat_error', 'You are joining rooms too quickly.');
+    }
+    const validRoom = validateRoom(roomName);
+    if (!validRoom.ok) return socket.emit('chat_error', validRoom.error);
+    const room = validRoom.value;
     socket.join(room);
 
     try {
@@ -64,11 +102,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('send_message', async (data) => {
-    const room = typeof data?.room === 'string' ? data.room.trim().slice(0, 32) : '';
-    const sender = typeof data?.sender === 'string' ? data.sender.trim().slice(0, 24) : '';
-    const senderId = typeof data?.senderId === 'string' ? data.senderId.slice(0, 64) : '';
-    const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 1000) : '';
-    if (!room || !sender || !text) return;
+    if (!messageLimiter.consume(socket.id).allowed) {
+      return socket.emit('chat_error', 'You are sending messages too quickly. Slow down.');
+    }
+    const validated = validateMessage(data);
+    if (!validated.ok) return socket.emit('chat_error', validated.error);
+    const { room, sender, senderId, text } = validated.value;
 
     try {
       const newMessage = await Message.create({ room, sender, senderId, text });
@@ -85,11 +124,16 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
+  socket.on('disconnect', () => {
+    messageLimiter.reset(socket.id);
+    joinLimiter.reset(socket.id);
+    console.log(`User disconnected: ${socket.id}`);
+  });
 });
 
 app.get('/health', (_req, res) => {
-  const healthy = mongoose.connection.readyState === 1
+  const healthy = !shuttingDown
+    && mongoose.connection.readyState === 1
     && pubClient.status === 'ready'
     && subClient.status === 'ready';
   res.status(healthy ? 200 : 503).json({ status: healthy ? 'OK' : 'Unavailable' });
@@ -113,5 +157,32 @@ async function start() {
     process.exitCode = 1;
   }
 }
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received, shutting down gracefully`);
+
+  const forceExit = setTimeout(() => {
+    console.error('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  forceExit.unref();
+
+  try {
+    // Stops accepting connections and disconnects connected sockets.
+    await new Promise((resolve) => io.close(resolve));
+    await Promise.all([pubClient, subClient].map((client) => client.quit().catch(() => client.disconnect())));
+    await mongoose.disconnect();
+    for (const limiter of [httpLimiter, connectionLimiter, messageLimiter, joinLimiter]) limiter.stop();
+    console.log('Shutdown complete');
+  } catch (error) {
+    console.error(`Error during shutdown: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 start();
