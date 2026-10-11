@@ -31,7 +31,42 @@ function clearMessages() {
   messageList.replaceChildren();
 }
 
+function showPlaceholder(title, detail, loading = false) {
+  const note = document.createElement('div');
+  note.className = `welcome-note${loading ? ' is-loading' : ''}`;
+  note.dataset.placeholder = 'true';
+
+  const spark = document.createElement('span');
+  spark.className = 'welcome-spark';
+  spark.setAttribute('aria-hidden', 'true');
+  spark.textContent = '✳';
+
+  const heading = document.createElement('div');
+  heading.className = 'welcome-title';
+  heading.textContent = title;
+
+  const body = document.createElement('p');
+  body.textContent = detail;
+
+  note.append(spark, heading, body);
+  messageList.replaceChildren(note);
+}
+
+function showLoadingState(room) {
+  showPlaceholder('Loading messages', `Fetching the conversation in #${room}.`, true);
+}
+
+function showEmptyState(room) {
+  showPlaceholder('No messages yet', `Say hello to start the conversation in #${room}.`);
+}
+
+function removePlaceholder() {
+  const placeholder = messageList.querySelector('[data-placeholder]');
+  if (placeholder) placeholder.remove();
+}
+
 function renderMessage(message) {
+  removePlaceholder();
   const sender = String(message.sender || 'Someone');
   const text = String(message.text || '');
   const isMine = message.senderId === senderId;
@@ -83,7 +118,7 @@ function joinRoom() {
   currentRoom = nextRoom;
   roomInput.value = nextRoom;
   roomTitle.textContent = nextRoom;
-  clearMessages();
+  showLoadingState(nextRoom);
   if (socket.connected) {
     socket.disconnect();
   }
@@ -101,8 +136,14 @@ socket.on('connect_error', () => {
   showNotice(`Can't reach the chat server at ${serverUrl}.`);
 });
 socket.on('chat_history', (history) => {
+  const messages = Array.isArray(history) ? history : [];
+  if (!messages.length) {
+    showEmptyState(currentRoom);
+    return;
+  }
+
   clearMessages();
-  if (Array.isArray(history)) history.forEach(renderMessage);
+  messages.forEach(renderMessage);
 });
 socket.on('receive_message', renderMessage);
 socket.on('chat_error', showNotice);
