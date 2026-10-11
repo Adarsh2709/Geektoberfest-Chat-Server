@@ -393,7 +393,7 @@ reportsList.addEventListener('click', (event) => {
 messageForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const text = messageInput.value.trim();
-  const sender = nameInput.value.trim() || 'You';
+  const sender = nameInput.value.trim() || defaultName;
   if (!text) return;
 
   socket.emit('send_message', { room: currentRoom, sender, text });
