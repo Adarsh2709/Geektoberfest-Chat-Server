@@ -8,6 +8,8 @@ const senderIdKey = 'gather-sender-id';
 const senderId = localStorage.getItem(senderIdKey) || crypto.randomUUID();
 localStorage.setItem(senderIdKey, senderId);
 
+const shortUserId = (id) => (typeof id === 'string' && id ? `#${id.replace(/-/g, '').slice(0, 4)}` : '');
+
 const messageList = document.querySelector('#message-list');
 const messageForm = document.querySelector('#message-form');
 const messageInput = document.querySelector('#message-input');
@@ -16,6 +18,10 @@ const roomInput = document.querySelector('#room-input');
 const roomTitle = document.querySelector('#room-title');
 const connectionLabel = document.querySelector('#connection-label');
 const notice = document.querySelector('#notice');
+const myUserId = document.querySelector('#my-user-id');
+
+myUserId.textContent = shortUserId(senderId);
+myUserId.title = `Your user ID: ${senderId}`;
 
 let currentRoom = roomInput.value.trim() || 'general';
 
@@ -53,7 +59,11 @@ function renderMessage(message) {
   time.textContent = Number.isNaN(date.getTime())
     ? ''
     : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  meta.append(senderName, time);
+  const userId = document.createElement('span');
+  userId.className = 'message-user-id';
+  userId.textContent = shortUserId(message.senderId);
+  userId.title = message.senderId ? `User ID: ${message.senderId}` : '';
+  meta.append(senderName, userId, time);
 
   const bubble = document.createElement('p');
   bubble.className = 'message-bubble';
