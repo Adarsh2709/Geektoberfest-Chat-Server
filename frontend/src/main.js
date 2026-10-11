@@ -58,6 +58,17 @@ function updateComposer() {
     : muted ? 'You are muted in this room' : 'Write a message...';
 }
 
+// Messages sent but not yet acknowledged, oldest first.
+const outbox = [];
+// Every clientId already on screen, so a re-delivered message is not drawn twice.
+const seenClientIds = new Set();
+// Our own unacknowledged bubbles, so an ack can un-dim the right one.
+const pendingRows = new Map();
+// Keeps repeated reconnect failures from stomping every other notice.
+let reportedOffline = false;
+// How long to wait for an acknowledgement before queueing the message again.
+const ACK_TIMEOUT_MS = 10000;
+
 function setConnectionState(connected) {
   isConnected = connected;
   connectionLabel.textContent = connected ? 'Connected' : 'Connecting';
@@ -69,6 +80,44 @@ setConnectionState(false);
 
 function clearMessages() {
   messageList.replaceChildren();
+  seenClientIds.clear();
+  pendingRows.clear();
+}
+
+function setPendingLabel(clientId, text) {
+  const label = pendingRows.get(clientId)?.querySelector('.message-status');
+  if (label) label.textContent = text;
+}
+
+function requeueOutbox() {
+  for (const message of outbox) {
+    message.inFlight = false;
+    setPendingLabel(message.clientId, 'Queued — offline');
+  }
+}
+
+function markDelivered(clientId) {
+  const queued = outbox.findIndex((message) => message.clientId === clientId);
+  if (queued !== -1) outbox.splice(queued, 1);
+
+  const row = pendingRows.get(clientId);
+  if (row) {
+    row.classList.remove('is-pending');
+    row.querySelector('.message-status')?.remove();
+    pendingRows.delete(clientId);
+  }
+}
+
+function discardQueued(clientId) {
+  const queued = outbox.findIndex((message) => message.clientId === clientId);
+  if (queued !== -1) outbox.splice(queued, 1);
+
+  const row = pendingRows.get(clientId);
+  if (row) {
+    row.remove();
+    pendingRows.delete(clientId);
+  }
+  seenClientIds.delete(clientId);
 }
 
 function actionButton(action, label) {
@@ -158,6 +207,14 @@ function renderMessage(message) {
   actions.className = 'message-actions';
   content.append(meta, bubble, actions);
   row.append(avatar, content);
+  if (pending && clientId) {
+    row.classList.add('is-pending');
+    const status = document.createElement('span');
+    status.className = 'message-status';
+    status.textContent = socket.connected ? 'Sending…' : 'Queued — offline';
+    meta.append(status);
+    pendingRows.set(clientId, row);
+  }
   messageList.append(row);
 
   if (message.deleted) markDeleted(row);
@@ -221,13 +278,20 @@ function joinRoom() {
 }
 
 socket.on('connect', () => {
+  reportedOffline = false;
   setConnectionState(true);
   socket.emit('join_room', { room: currentRoom, secret });
 });
 
-socket.on('disconnect', () => setConnectionState(false));
+socket.on('disconnect', () => {
+  setConnectionState(false);
+  requeueOutbox();
+});
 socket.on('connect_error', () => {
   setConnectionState(false);
+  requeueOutbox();
+  if (reportedOffline) return;
+  reportedOffline = true;
   showNotice(`Can't reach the chat server at ${serverUrl}.`);
 });
 socket.on('identity', ({ userId }) => {
@@ -242,7 +306,13 @@ socket.on('room_state', (state) => {
 });
 socket.on('chat_history', (history) => {
   clearMessages();
-  if (Array.isArray(history)) history.forEach(renderMessage);
+  if (Array.isArray(history)) history.forEach((message) => renderMessage(message));
+
+  // Queued messages are not in history yet, so put them back on screen. Any
+  // that the server did store are deduped and marked delivered instead.
+  for (const message of [...outbox]) {
+    if (message.room === currentRoom) renderMessage(message, { pending: true });
+  }
 });
 socket.on('receive_message', renderMessage);
 socket.on('message_deleted', ({ messageId }) => {
@@ -319,14 +389,13 @@ messageForm.addEventListener('submit', (event) => {
   const text = messageInput.value.trim();
   const sender = nameInput.value.trim() || 'You';
   if (!text) return;
-  if (!socket.connected) {
-    showNotice('Wait for the server connection before sending.');
-    return;
-  }
 
   socket.emit('send_message', { room: currentRoom, sender, text });
   messageInput.value = '';
   messageInput.focus();
+
+  if (socket.connected) flushOutbox();
+  else showNotice('Offline. This will send when the connection is back.');
 });
 
 document.querySelector('#join-button').addEventListener('click', joinRoom);

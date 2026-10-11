@@ -177,6 +177,8 @@ button { cursor: pointer; }
 .message-row.is-mine .message-avatar { order: 2; background: #d9e9db; }
 .message-row.is-mine .message-content { margin-left: auto; text-align: right; }
 .message-row.is-mine .message-meta { justify-content: flex-end; }
+.message-row.is-pending { opacity: .62; }
+.message-status { color: #8d968f; font-size: 10px; font-style: italic; white-space: nowrap; }
 .message-row.is-mine .message-bubble { margin-left: auto; border-radius: 12px 3px 12px 12px; background: var(--green); color: white; text-align: left; }
 .message-badge { color: #b0663f; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .message-badge:empty { display: none; }

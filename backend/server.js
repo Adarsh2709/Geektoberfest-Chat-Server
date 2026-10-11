@@ -195,7 +195,11 @@ io.on('connection', (socket) => {
     const room = typeof data?.room === 'string' ? data.room.trim().slice(0, 32) : '';
     const sender = typeof data?.sender === 'string' ? data.sender.trim().slice(0, 24) : '';
     const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 1000) : '';
-    if (!room || !sender || !text) return;
+    const clientId = typeof data?.clientId === 'string' ? data.clientId.slice(0, 64) : '';
+    if (!room || !sender || !text) {
+      respond({ ok: false, error: 'Message needs a room, a sender, and some text.' });
+      return;
+    }
 
     // The sender is whoever proved their identity when joining, never a client-supplied ID.
     const senderId = socket.data.userId;
@@ -213,11 +217,19 @@ io.on('connection', (socket) => {
         sender,
         senderId,
         text,
+        clientId,
         timestamp: newMessage.timestamp,
       });
     } catch (error) {
+      if (error?.code === 11000) {
+        // Stored by an earlier attempt whose acknowledgement never arrived;
+        // it was broadcast then, so do not publish it a second time.
+        respond({ ok: true, clientId, duplicate: true });
+        return;
+      }
+
       console.error(`Failed to save or broadcast message: ${error.message}`);
-      socket.emit('chat_error', 'Could not send your message.');
+      respond({ ok: false, error: 'Could not send your message.' });
     }
   }));
 
