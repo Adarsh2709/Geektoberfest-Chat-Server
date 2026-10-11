@@ -5,6 +5,8 @@ const serverUrl = import.meta.env.VITE_CHAT_SERVER_URL
   || (import.meta.env.PROD ? 'https://chat-server-2-fzyd.onrender.com' : 'http://localhost:5000');
 const socket = io(serverUrl, { autoConnect: false, transports: ['websocket'] });
 const senderIdKey = 'gather-sender-id';
+const displayNameKey = 'gather-display-name';
+const defaultName = 'You';
 const senderId = localStorage.getItem(senderIdKey) || crypto.randomUUID();
 localStorage.setItem(senderIdKey, senderId);
 
@@ -16,6 +18,38 @@ const roomInput = document.querySelector('#room-input');
 const roomTitle = document.querySelector('#room-title');
 const connectionLabel = document.querySelector('#connection-label');
 const notice = document.querySelector('#notice');
+const identityDot = document.querySelector('.identity-dot');
+
+function readStoredName() {
+  try {
+    return (localStorage.getItem(displayNameKey) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function storeName(name) {
+  try {
+    if (name) localStorage.setItem(displayNameKey, name);
+    else localStorage.removeItem(displayNameKey);
+  } catch {
+    // Storage unavailable; the name simply will not persist.
+  }
+}
+
+function syncIdentityDot() {
+  const name = nameInput.value.trim() || defaultName;
+  identityDot.textContent = name.slice(0, 1).toUpperCase();
+}
+
+const storedName = readStoredName();
+if (storedName) nameInput.value = storedName;
+syncIdentityDot();
+
+nameInput.addEventListener('input', () => {
+  storeName(nameInput.value.trim());
+  syncIdentityDot();
+});
 
 let currentRoom = roomInput.value.trim() || 'general';
 
@@ -110,7 +144,7 @@ socket.on('chat_error', showNotice);
 messageForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const text = messageInput.value.trim();
-  const sender = nameInput.value.trim() || 'You';
+  const sender = nameInput.value.trim() || defaultName;
   if (!text) return;
   if (!socket.connected) {
     showNotice('Wait for the server connection before sending.');
