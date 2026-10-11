@@ -9,6 +9,8 @@ const secretKey = 'gather-secret';
 const secret = localStorage.getItem(secretKey) || `${crypto.randomUUID()}${crypto.randomUUID()}`;
 localStorage.setItem(secretKey, secret);
 
+const shortUserId = (id) => (typeof id === 'string' && id ? `#${id.replace(/-/g, '').slice(0, 4)}` : '');
+
 const messageList = document.querySelector('#message-list');
 const messageForm = document.querySelector('#message-form');
 const messageInput = document.querySelector('#message-input');
@@ -21,6 +23,10 @@ const reportsPanel = document.querySelector('#reports-panel');
 const reportsCount = document.querySelector('#reports-count');
 const reportsList = document.querySelector('#reports-list');
 const notice = document.querySelector('#notice');
+const myUserId = document.querySelector('#my-user-id');
+
+myUserId.textContent = shortUserId(senderId);
+myUserId.title = `Your user ID: ${senderId}`;
 
 let currentRoom = roomInput.value.trim() || 'general';
 let isConnected = false;
