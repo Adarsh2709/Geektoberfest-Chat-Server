@@ -166,6 +166,7 @@ function setAuthMode(mode) {
 
 async function logOut() {
   const token = session?.token;
+  setAuthMode('login');
   showAuth();
   // Revoke the token server-side; the local session is already gone either way.
   await requestAuth('logout', { token }).catch(() => {});
