@@ -8,6 +8,7 @@ import http from 'node:http';
 import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
 import { Message } from './models/user.js';
+import { parseTypingEvent, shouldRelayTyping } from './utils/typing.js';
 
 const REDIS_CHAT_CHANNEL = 'CHAT_ROOMS';
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -37,7 +38,14 @@ subClient.on('message', (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
 
   try {
-    const { room, sender, senderId, text, timestamp } = JSON.parse(message);
+    const payload = JSON.parse(message);
+    if (payload.type === 'typing') {
+      const event = parseTypingEvent(payload);
+      if (event) io.to(event.room).emit('typing', event);
+      return;
+    }
+
+    const { room, sender, senderId, text, timestamp } = payload;
     if (room && typeof sender === 'string' && typeof text === 'string') {
       io.to(room).emit('receive_message', { sender, senderId, text, timestamp });
     }
@@ -85,7 +93,34 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
+  // Only sockets that joined the room may announce typing in it. Typing is
+  // relayed through Redis so users on other backend instances see it too.
+  function publishTyping(event) {
+    return pubClient.publish(REDIS_CHAT_CHANNEL, JSON.stringify({ type: 'typing', ...event }))
+      .catch((error) => console.error(`Failed to broadcast typing state: ${error.message}`));
+  }
+
+  socket.on('typing', (data) => {
+    const event = parseTypingEvent(data);
+    if (!event || !socket.rooms.has(event.room)) return;
+
+    if (event.typing) {
+      const now = Date.now();
+      if (!shouldRelayTyping(socket.data.lastTypingAt, now)) return;
+      socket.data.lastTypingAt = now;
+      socket.data.typing = event;
+    } else {
+      socket.data.lastTypingAt = 0;
+      socket.data.typing = null;
+    }
+    publishTyping({ ...event, socketId: socket.id });
+  });
+
+  socket.on('disconnect', () => {
+    // Don't leave a ghost "is typing" behind if the user drops mid-sentence.
+    if (socket.data.typing) publishTyping({ ...socket.data.typing, socketId: socket.id, typing: false });
+    console.log(`User disconnected: ${socket.id}`);
+  });
 });
 
 app.get('/health', (_req, res) => {

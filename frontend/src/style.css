@@ -179,6 +179,12 @@ button { cursor: pointer; }
 .message-row.is-mine .message-meta { justify-content: flex-end; }
 .message-row.is-mine .message-bubble { margin-left: auto; border-radius: 12px 3px 12px 12px; background: var(--green); color: white; text-align: left; }
 
+.typing-indicator { display: flex; min-height: 20px; align-items: center; gap: 5px; padding: 0 31px; color: #7e8981; font-size: 12px; font-style: italic; }
+.typing-dots { display: inline-flex; gap: 3px; }
+.typing-dots span { width: 4px; height: 4px; border-radius: 50%; background: #9aa89e; animation: typing-bounce 1.2s infinite ease-in-out; }
+.typing-dots span:nth-child(2) { animation-delay: .15s; }
+.typing-dots span:nth-child(3) { animation-delay: .3s; }
+
 .composer { display: flex; align-items: center; gap: 12px; margin: 0 25px 12px; padding: 8px 9px 8px 16px; border: 1px solid #e5eae4; border-radius: 10px; background: #fff; transition: border-color .18s ease, box-shadow .18s ease; }
 .composer:focus-within { border-color: #a4c2a8; box-shadow: 0 0 0 3px rgba(93, 142, 102, .09); }
 .composer input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--ink); font-size: 13px; }
@@ -191,6 +197,7 @@ button { cursor: pointer; }
 
 @keyframes rise-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes typing-bounce { 0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 @keyframes message-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 640px) {
@@ -204,6 +211,7 @@ button { cursor: pointer; }
   .rail-bottom { position: static; width: auto; margin-left: auto; padding: 0; border: 0; font-size: 0; }
   .conversation-header { min-height: 68px; padding: 0 18px; }
   .message-list { padding: 21px 16px; }
+  .typing-indicator { padding: 0 16px; }
   .composer { margin-right: 12px; margin-left: 12px; }
   .notice { padding-right: 12px; padding-left: 12px; }
 }

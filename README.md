@@ -21,6 +21,10 @@ For a separate Render backend and Vercel frontend, set the Vercel project's Root
 
 For a single Vercel project using the root `vercel.json`, set the repository root as the Root Directory. It builds `frontend/` and `backend/` as services, routes `/socket.io/` to the backend, and sends other paths to the frontend; leave `VITE_CHAT_SERVER_URL` unset so the browser connects to the same origin. Configure `MONGO_URL`, `REDIS_URL`, and `FRONTEND_ORIGIN` for the backend service. Service bindings are not needed because the browser uses the public Socket.IO rewrite and the backend does not call another Vercel service.
 
+### Typing indicators
+
+Clients emit `typing` with `{ room, sender, senderId, typing }` while the user types. The server only accepts it from sockets that joined the room, throttles "started typing" events to one per second per socket, relays it through Redis so every backend instance reaches its clients, and announces "stopped typing" if the user disconnects mid-sentence. The UI shows "X is typing", "X and Y are typing" or "Several people are typing" above the composer; typing stops after 3 seconds without keystrokes, on send, or when the input loses focus, and an indicator the client stops hearing about expires after 5 seconds. Typing events are not stored. Run backend tests with `npm test` in `backend/`.
+
 Keep credentials in Render/Vercel environment settings. Do not commit `.env` files.
 
 ## Issues for contributors
