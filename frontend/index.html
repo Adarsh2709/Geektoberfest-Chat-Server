@@ -41,8 +41,13 @@
               <div class="eyebrow">ROOM</div>
               <h1><span class="heading-hash">#</span><span id="room-title">general</span></h1>
             </div>
-            <div class="people-count"><span class="people-icon" aria-hidden="true">••</span> Live chat</div>
+            <div class="people-count"><span class="people-icon" aria-hidden="true">••</span> Live chat <span id="role-label" class="role-label"></span></div>
           </div>
+
+          <details id="reports-panel" class="reports-panel" hidden>
+            <summary>Reported messages (<span id="reports-count">0</span>)</summary>
+            <ul id="reports-list" class="reports-list"></ul>
+          </details>
 
           <div id="message-list" class="message-list" role="log" aria-live="polite" aria-relevant="additions text">
             <div class="welcome-note">
