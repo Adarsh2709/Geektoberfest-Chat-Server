@@ -177,6 +177,8 @@ button { cursor: pointer; }
 .message-row.is-mine .message-avatar { order: 2; background: #d9e9db; }
 .message-row.is-mine .message-content { margin-left: auto; text-align: right; }
 .message-row.is-mine .message-meta { justify-content: flex-end; }
+.message-row.is-pending { opacity: .62; }
+.message-status { color: #8d968f; font-size: 10px; font-style: italic; white-space: nowrap; }
 .message-row.is-mine .message-bubble { margin-left: auto; border-radius: 12px 3px 12px 12px; background: var(--green); color: white; text-align: left; }
 
 .composer { display: flex; align-items: center; gap: 12px; margin: 0 25px 12px; padding: 8px 9px 8px 16px; border: 1px solid #e5eae4; border-radius: 10px; background: #fff; transition: border-color .18s ease, box-shadow .18s ease; }

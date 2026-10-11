@@ -37,9 +37,9 @@ subClient.on('message', (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
 
   try {
-    const { room, sender, senderId, text, timestamp } = JSON.parse(message);
+    const { room, sender, senderId, text, clientId, timestamp } = JSON.parse(message);
     if (room && typeof sender === 'string' && typeof text === 'string') {
-      io.to(room).emit('receive_message', { sender, senderId, text, timestamp });
+      io.to(room).emit('receive_message', { sender, senderId, text, clientId, timestamp });
     }
   } catch (error) {
     console.error(`Invalid Redis chat payload: ${error.message}`);
@@ -63,25 +63,49 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('send_message', async (data) => {
+  socket.on('send_message', async (data, ack) => {
+    // Clients without an ack callback (the CLI client) still get chat_error.
+    const respond = typeof ack === 'function'
+      ? ack
+      : (result) => { if (!result.ok) socket.emit('chat_error', result.error); };
+
     const room = typeof data?.room === 'string' ? data.room.trim().slice(0, 32) : '';
     const sender = typeof data?.sender === 'string' ? data.sender.trim().slice(0, 24) : '';
     const senderId = typeof data?.senderId === 'string' ? data.senderId.slice(0, 64) : '';
     const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 1000) : '';
-    if (!room || !sender || !text) return;
+    const clientId = typeof data?.clientId === 'string' ? data.clientId.slice(0, 64) : '';
+    if (!room || !sender || !text) {
+      respond({ ok: false, error: 'Message needs a room, a sender, and some text.' });
+      return;
+    }
 
     try {
-      const newMessage = await Message.create({ room, sender, senderId, text });
+      const newMessage = await Message.create({
+        room,
+        sender,
+        senderId,
+        text,
+        clientId: clientId || undefined,
+      });
       await pubClient.publish(REDIS_CHAT_CHANNEL, JSON.stringify({
         room,
         sender,
         senderId,
         text,
+        clientId,
         timestamp: newMessage.timestamp,
       }));
+      respond({ ok: true, clientId, timestamp: newMessage.timestamp });
     } catch (error) {
+      if (error?.code === 11000) {
+        // Stored by an earlier attempt whose acknowledgement never arrived;
+        // it was broadcast then, so do not publish it a second time.
+        respond({ ok: true, clientId, duplicate: true });
+        return;
+      }
+
       console.error(`Failed to save or broadcast message: ${error.message}`);
-      socket.emit('chat_error', 'Could not send your message.');
+      respond({ ok: false, error: 'Could not send your message.' });
     }
   });
 
