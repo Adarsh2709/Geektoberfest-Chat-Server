@@ -173,11 +173,32 @@ button { cursor: pointer; }
 .message-meta { display: flex; align-items: baseline; gap: 9px; min-height: 18px; font-size: 12px; }
 .message-meta strong { color: #39453d; font-weight: 700; }
 .message-meta time { color: #a0a8a1; font-size: 10px; }
+.message-user-id, .user-id-tag { color: #7d8a80; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10px; }
+.message-user-id:empty { display: none; }
 .message-bubble { width: fit-content; max-width: 100%; margin: 3px 0 0; padding: 10px 13px; border-radius: 3px 12px 12px; background: #f2f5f1; color: #48534b; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .message-row.is-mine .message-avatar { order: 2; background: #d9e9db; }
 .message-row.is-mine .message-content { margin-left: auto; text-align: right; }
 .message-row.is-mine .message-meta { justify-content: flex-end; }
+.message-row.is-pending { opacity: .62; }
+.message-status { color: #8d968f; font-size: 10px; font-style: italic; white-space: nowrap; }
 .message-row.is-mine .message-bubble { margin-left: auto; border-radius: 12px 3px 12px 12px; background: var(--green); color: white; text-align: left; }
+.message-badge { color: #b0663f; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.message-badge:empty { display: none; }
+.message-bubble.is-removed, .message-row.is-mine .message-bubble.is-removed { background: transparent; border: 1px dashed #d5dbd3; color: #929b94; font-style: italic; }
+.message-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; opacity: 0; transition: opacity .15s ease; }
+.message-row:hover .message-actions, .message-row:focus-within .message-actions, .message-actions.is-visible { opacity: 1; }
+.message-row.is-mine .message-actions { justify-content: flex-end; }
+.message-action { padding: 2px 8px; border: 1px solid #e2e7e0; border-radius: 10px; background: #fff; color: #6b766e; font-size: 10px; cursor: pointer; }
+.message-action:hover, .message-action:focus-visible { border-color: var(--green); color: var(--green); }
+.role-label { margin-left: 8px; color: #b0663f; font-weight: 700; }
+.reports-panel { padding: 8px 28px; border-bottom: 1px solid var(--line); background: #fdf8f3; font-size: 12px; }
+.reports-panel summary { color: #876545; font-weight: 700; cursor: pointer; }
+.reports-list { margin: 8px 0 0; padding: 0; max-height: 160px; overflow-y: auto; list-style: none; }
+.report-item { padding: 8px 0; border-top: 1px solid #f0e6da; }
+.report-text, .report-reason { margin: 0 0 3px; overflow-wrap: anywhere; }
+.report-text { color: #48534b; }
+.report-reason { color: #929b94; font-size: 11px; }
+@media (hover: none) { .message-actions { opacity: 1; } }
 
 .typing-indicator { display: flex; min-height: 20px; align-items: center; gap: 5px; padding: 0 31px; color: #7e8981; font-size: 12px; font-style: italic; }
 .typing-dots { display: inline-flex; gap: 3px; }
