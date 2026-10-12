@@ -11,7 +11,17 @@ const messageSchema = new mongoose.Schema({
     deletedBy: { type: String },
     timestamp: { type: Date, default: Date.now }},
     {
-        timestamps: true 
+        timestamps: true
+});
+
+const userSchema = new mongoose.Schema({
+    username: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    passwordHash: { type: String, required: true },
+    // Bumped on logout so previously issued tokens stop working.
+    tokenVersion: { type: Number, default: 0 }},
+    {
+        timestamps: true
 });
 
 export const Message = mongoose.model('Message', messageSchema);
+export const User = mongoose.model('User', userSchema);

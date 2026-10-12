@@ -3,18 +3,24 @@ import './style.css';
 
 const serverUrl = import.meta.env.VITE_CHAT_SERVER_URL
   || (import.meta.env.PROD ? 'https://chat-server-2-fzyd.onrender.com' : 'http://localhost:5000');
-const socket = io(serverUrl, { autoConnect: false, transports: ['websocket'] });
-// Private identity secret: only the server-derived public ID is ever shown to others.
-const secretKey = 'gather-secret';
-const secret = localStorage.getItem(secretKey) || `${crypto.randomUUID()}${crypto.randomUUID()}`;
-localStorage.setItem(secretKey, secret);
-
-const shortUserId = (id) => (typeof id === 'string' && id ? `#${id.replace(/-/g, '').slice(0, 4)}` : '');
+const sessionKey = 'gather-session';
+let session = readSession();
+function readSession() {
+  try {
+    return JSON.parse(localStorage.getItem(sessionKey));
+  } catch {
+    return null;
+  }
+}
+const socket = io(serverUrl, {
+  autoConnect: false,
+  transports: ['websocket'],
+  auth: (callback) => callback({ token: session?.token }),
+});
 
 const messageList = document.querySelector('#message-list');
 const messageForm = document.querySelector('#message-form');
 const messageInput = document.querySelector('#message-input');
-const nameInput = document.querySelector('#name-input');
 const roomInput = document.querySelector('#room-input');
 const roomTitle = document.querySelector('#room-title');
 const connectionLabel = document.querySelector('#connection-label');
@@ -23,12 +29,18 @@ const reportsPanel = document.querySelector('#reports-panel');
 const reportsCount = document.querySelector('#reports-count');
 const reportsList = document.querySelector('#reports-list');
 const notice = document.querySelector('#notice');
-const myUserId = document.querySelector('#my-user-id');
-
-myUserId.textContent = shortUserId(senderId);
-myUserId.title = `Your user ID: ${senderId}`;
+const chatView = document.querySelector('#chat-view');
+const identity = document.querySelector('#identity');
+const authView = document.querySelector('#auth-view');
+const authForm = document.querySelector('#auth-form');
+const authUsername = document.querySelector('#auth-username');
+const authPassword = document.querySelector('#auth-password');
+const authSubmit = document.querySelector('#auth-submit');
+const authSwitch = document.querySelector('#auth-switch');
+const authNotice = document.querySelector('#auth-notice');
 
 let currentRoom = roomInput.value.trim() || 'general';
+let authMode = 'login';
 let isConnected = false;
 let isRemoved = false;
 let myUserId = '';
@@ -126,6 +138,38 @@ function discardQueued(clientId) {
   seenClientIds.delete(clientId);
 }
 
+function flushOutbox() {
+  if (!socket.connected) return;
+
+  for (const message of outbox) {
+    if (message.inFlight) continue;
+    message.inFlight = true;
+
+    const { clientId, room, text } = message;
+    setPendingLabel(clientId, 'Sending…');
+    socket.timeout(ACK_TIMEOUT_MS).emit('send_message', { clientId, room, text }, (timedOut, response) => {
+      message.inFlight = false;
+
+      if (timedOut) {
+        // No answer came back. Stay queued; the server deduplicates on
+        // clientId, so resending later cannot create a second copy.
+        setPendingLabel(clientId, 'Queued — retrying');
+        return;
+      }
+
+      if (response?.ok) {
+        markDelivered(clientId);
+        return;
+      }
+
+      // A rejected message will not succeed on retry, so hand the text back.
+      discardQueued(clientId);
+      if (!messageInput.value.trim()) messageInput.value = text;
+      showNotice(response?.error || 'Could not send your message.');
+    });
+  }
+}
+
 function actionButton(action, label) {
   const button = document.createElement('button');
   button.type = 'button';
@@ -213,7 +257,21 @@ function removePlaceholder() {
   if (placeholder) placeholder.remove();
 }
 
-function renderMessage(message) {
+function renderMessage(message, { pending = false } = {}) {
+  const clientId = typeof message.clientId === 'string' ? message.clientId : '';
+  if (clientId && seenClientIds.has(clientId)) {
+    // Already drawn. The echo is itself proof the server stored it, and it
+    // carries the message ID the moderation actions need.
+    const row = pendingRows.get(clientId);
+    if (row && message.id) {
+      row.dataset.messageId = message.id;
+      refreshRow(row);
+    }
+    markDelivered(clientId);
+    return;
+  }
+  if (clientId) seenClientIds.add(clientId);
+
   removePlaceholder();
   const sender = String(message.sender || 'Someone');
   const text = String(message.text || '');
@@ -296,6 +354,15 @@ function showNotice(text) {
   }, 3500);
 }
 
+function resetRoom(room) {
+  roomState = { ownerId: '', moderators: [], mutedIds: [] };
+  isRemoved = false;
+  clearMessages();
+  showLoadingState(room);
+  renderReports([]);
+  refreshAllRows();
+}
+
 function joinRoom() {
   const nextRoom = roomInput.value.trim();
   if (!nextRoom) {
@@ -307,29 +374,100 @@ function joinRoom() {
   currentRoom = nextRoom;
   roomInput.value = nextRoom;
   roomTitle.textContent = nextRoom;
-  roomState = { ownerId: '', moderators: [], mutedIds: [] };
-  isRemoved = false;
-  clearMessages();
-  renderReports([]);
-  refreshAllRows();
+  resetRoom(nextRoom);
   if (socket.connected) {
     socket.disconnect();
   }
   socket.connect();
 }
 
+async function requestAuth(path, { body, token } = {}) {
+  let response;
+  try {
+    response = await fetch(`${serverUrl}/api/auth/${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: body && JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(`Can't reach the chat server at ${serverUrl}.`);
+  }
+
+  const data = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || 'Something went wrong. Try again.');
+  return data;
+}
+
+function showChat() {
+  const { id, username } = session.user;
+  myUserId = id;
+  identity.querySelector('#identity-dot').textContent = username.slice(0, 1).toUpperCase();
+  identity.querySelector('#identity-name').textContent = username;
+  authView.hidden = true;
+  identity.hidden = false;
+  chatView.hidden = false;
+  resetRoom(currentRoom);
+  socket.connect();
+  messageInput.focus();
+}
+
+function showAuth(message = '') {
+  session = null;
+  myUserId = '';
+  localStorage.removeItem(sessionKey);
+  socket.disconnect();
+  // Queued messages belong to the account that wrote them.
+  outbox.length = 0;
+  clearMessages();
+  chatView.hidden = true;
+  identity.hidden = true;
+  authView.hidden = false;
+  authNotice.textContent = message;
+  authUsername.focus();
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const registering = mode === 'register';
+  document.querySelector('#auth-eyebrow').textContent = registering ? 'NEW HERE' : 'WELCOME BACK';
+  document.querySelector('#auth-title').textContent = registering ? 'Create your account' : 'Log in to gather';
+  document.querySelector('#auth-switch-text').textContent = registering ? 'Already have an account?' : 'New here?';
+  authSwitch.textContent = registering ? 'Log in' : 'Create an account';
+  authSubmit.textContent = registering ? 'Create account' : 'Log in';
+  authPassword.autocomplete = registering ? 'new-password' : 'current-password';
+  authNotice.textContent = '';
+}
+
+async function logOut() {
+  const token = session?.token;
+  setAuthMode('login');
+  showAuth();
+  // Revoke the token server-side; the local session is already gone either way.
+  await requestAuth('logout', { token }).catch(() => {});
+}
+
 socket.on('connect', () => {
   reportedOffline = false;
   setConnectionState(true);
-  socket.emit('join_room', { room: currentRoom, secret });
+  socket.emit('join_room', { room: currentRoom });
+  flushOutbox();
 });
 
-socket.on('disconnect', () => {
+socket.on('disconnect', (reason) => {
   setConnectionState(false);
   requeueOutbox();
+  // The server drops sockets when the user logs out elsewhere; reconnecting re-checks the token.
+  if (reason === 'io server disconnect' && session) socket.connect();
 });
-socket.on('connect_error', () => {
+socket.on('connect_error', (error) => {
   setConnectionState(false);
+  if (error.message === 'Unauthorized') {
+    showAuth('Your session has ended. Please log in again.');
+    return;
+  }
   requeueOutbox();
   if (reportedOffline) return;
   reportedOffline = true;
@@ -347,13 +485,9 @@ socket.on('room_state', (state) => {
 });
 socket.on('chat_history', (history) => {
   const messages = Array.isArray(history) ? history : [];
-  if (!messages.length) {
-    showEmptyState(currentRoom);
-    return;
-  }
-
   clearMessages();
-  if (Array.isArray(history)) history.forEach((message) => renderMessage(message));
+  if (messages.length) messages.forEach((message) => renderMessage(message));
+  else showEmptyState(currentRoom);
 
   // Queued messages are not in history yet, so put them back on screen. Any
   // that the server did store are deduped and marked delivered instead.
@@ -361,7 +495,7 @@ socket.on('chat_history', (history) => {
     if (message.room === currentRoom) renderMessage(message, { pending: true });
   }
 });
-socket.on('receive_message', renderMessage);
+socket.on('receive_message', (message) => renderMessage(message));
 socket.on('message_deleted', ({ messageId }) => {
   messageList.querySelectorAll('.message-row').forEach((row) => {
     if (row.dataset.messageId === messageId) markDeleted(row);
@@ -434,10 +568,19 @@ reportsList.addEventListener('click', (event) => {
 messageForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const text = messageInput.value.trim();
-  const sender = nameInput.value.trim() || defaultName;
-  if (!text) return;
+  if (!text || !session) return;
 
-  socket.emit('send_message', { room: currentRoom, sender, text });
+  // The server decides the real sender; these fields only draw the pending bubble.
+  const queued = {
+    clientId: crypto.randomUUID(),
+    room: currentRoom,
+    sender: session.user.username,
+    senderId: session.user.id,
+    text,
+    timestamp: new Date().toISOString(),
+  };
+  outbox.push(queued);
+  renderMessage(queued, { pending: true });
   messageInput.value = '';
   messageInput.focus();
 
@@ -445,9 +588,34 @@ messageForm.addEventListener('submit', (event) => {
   else showNotice('Offline. This will send when the connection is back.');
 });
 
+authForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  authSubmit.disabled = true;
+  authNotice.textContent = '';
+
+  try {
+    session = await requestAuth(authMode, {
+      body: { username: authUsername.value, password: authPassword.value },
+    });
+    localStorage.setItem(sessionKey, JSON.stringify(session));
+    authPassword.value = '';
+    showChat();
+  } catch (error) {
+    authNotice.textContent = error.message;
+  } finally {
+    authSubmit.disabled = false;
+  }
+});
+
+authSwitch.addEventListener('click', () => setAuthMode(authMode === 'login' ? 'register' : 'login'));
+document.querySelector('#logout-button').addEventListener('click', logOut);
 document.querySelector('#join-button').addEventListener('click', joinRoom);
 roomInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') joinRoom();
 });
 
-socket.connect();
+if (session?.token && session.user) {
+  showChat();
+} else {
+  showAuth();
+}

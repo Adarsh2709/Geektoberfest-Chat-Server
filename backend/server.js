@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import crypto from 'node:crypto';
 import express from 'express';
+import cors from 'cors';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
 import http from 'node:http';
@@ -11,6 +11,7 @@ import { connectDB } from './config/db.js';
 import { Message } from './models/user.js';
 import { Report, Room } from './models/moderation.js';
 import { canManageModerators, canModerate, getRole, isStaff } from './utils/permissions.js';
+import { authRouter, authenticateSocket, getJwtSecret } from './auth.js';
 
 const REDIS_CHAT_CHANNEL = 'CHAT_ROOMS';
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -35,31 +36,28 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
 });
+app.set('io', io);
+app.use('/api', cors({ origin: allowedOrigins }));
+app.use('/api/auth', authRouter);
+io.use(authenticateSocket);
 
 // An error whose message is safe to show to the user.
 class UserError extends Error {}
-
-const USER_ID_PATTERN = /^[a-f0-9]{32}$/;
 
 function cleanRoomName(value) {
   if (typeof value !== 'string' || !value.trim()) throw new UserError('Enter a room name first.');
   return value.trim().slice(0, 32);
 }
 
+// User IDs are account IDs, so they are Mongo ObjectIds.
 function cleanUserId(value) {
-  if (typeof value !== 'string' || !USER_ID_PATTERN.test(value)) throw new UserError('Invalid user.');
+  if (typeof value !== 'string' || !mongoose.isValidObjectId(value)) throw new UserError('Invalid user.');
   return value;
 }
 
 function cleanMessageId(value) {
   if (typeof value !== 'string' || !mongoose.isValidObjectId(value)) throw new UserError('Invalid message.');
   return value;
-}
-
-// The public user ID is derived from a private secret that never leaves the
-// sender's browser, so IDs seen in chat cannot be used to impersonate someone.
-function deriveUserId(secret) {
-  return crypto.createHash('sha256').update(secret).digest('hex').slice(0, 32);
 }
 
 function roomState(room) {
@@ -114,9 +112,9 @@ subClient.on('message', async (channel, message) => {
         await removeUserFromRoom(payload.room, payload.userId);
         break;
       default: {
-        const { id, room, sender, senderId, text, timestamp } = payload;
+        const { id, room, sender, senderId, text, clientId, timestamp } = payload;
         if (room && typeof sender === 'string' && typeof text === 'string') {
-          io.to(room).emit('receive_message', { id, sender, senderId, text, timestamp });
+          io.to(room).emit('receive_message', { id, sender, senderId, text, clientId, timestamp });
         }
       }
     }
@@ -126,12 +124,17 @@ subClient.on('message', async (channel, message) => {
 });
 
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  const { id: senderId, username: sender } = socket.data.user;
+  console.log(`User connected: ${sender} (${socket.id})`);
+  // Moderation and message ownership both key off the authenticated account.
+  socket.data.userId = senderId;
+  // Lets logout disconnect every socket belonging to this user.
+  socket.join(`user:${senderId}`);
 
   // Runs a socket event handler, turning failures into a chat_error for the sender.
-  const handle = (fn) => async (data) => {
+  const handle = (fn) => async (...args) => {
     try {
-      await fn(data);
+      await fn(...args);
     } catch (error) {
       if (error instanceof UserError) {
         socket.emit('chat_error', error.message);
@@ -144,7 +147,6 @@ io.on('connection', (socket) => {
 
   async function loadModerationContext(roomName) {
     const actorId = socket.data.userId;
-    if (!actorId) throw new UserError('Join a room first.');
     const room = await Room.findOne({ name: cleanRoomName(roomName) });
     if (!room) throw new UserError('Room not found.');
     return { actorId, room };
@@ -155,23 +157,14 @@ io.on('connection', (socket) => {
   }
 
   socket.on('join_room', handle(async (payload) => {
-    // Plain-string payloads (older clients) join without an identity.
     const room = cleanRoomName(typeof payload === 'string' ? payload : payload?.room);
-    const secret = typeof payload === 'object' ? payload?.secret : undefined;
-    if (secret !== undefined && (typeof secret !== 'string' || secret.length < 16 || secret.length > 128)) {
-      throw new UserError('Invalid identity.');
-    }
-
-    const userId = secret ? deriveUserId(secret) : '';
-    socket.data.userId = userId;
-
-    const roomDoc = await ensureRoom(room, userId);
-    if (roomDoc?.bannedIds.includes(userId)) {
+    const roomDoc = await ensureRoom(room, senderId);
+    if (roomDoc?.bannedIds.includes(senderId)) {
       throw new UserError('You have been removed from this room.');
     }
 
     socket.join(room);
-    if (userId) socket.emit('identity', { userId });
+    socket.emit('identity', { userId: senderId });
     if (roomDoc) socket.emit('room_state', roomState(roomDoc));
 
     try {
@@ -191,26 +184,33 @@ io.on('connection', (socket) => {
     }
   }));
 
-  socket.on('send_message', handle(async (data) => {
+  // The sender always comes from the authenticated socket, never from the payload.
+  socket.on('send_message', handle(async (data, ack) => {
+    // Clients without an ack callback (the CLI client) still get chat_error.
+    const respond = typeof ack === 'function'
+      ? ack
+      : (result) => { if (!result.ok) socket.emit('chat_error', result.error); };
+
     const room = typeof data?.room === 'string' ? data.room.trim().slice(0, 32) : '';
-    const sender = typeof data?.sender === 'string' ? data.sender.trim().slice(0, 24) : '';
     const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 1000) : '';
     const clientId = typeof data?.clientId === 'string' ? data.clientId.slice(0, 64) : '';
-    if (!room || !sender || !text) {
-      respond({ ok: false, error: 'Message needs a room, a sender, and some text.' });
+    if (!room || !text) {
+      respond({ ok: false, error: 'Message needs a room and some text.' });
       return;
     }
 
-    // The sender is whoever proved their identity when joining, never a client-supplied ID.
-    const senderId = socket.data.userId;
-    if (!senderId) throw new UserError('Reload the page to keep chatting.');
-
     const roomDoc = await Room.findOne({ name: room }).lean();
-    if (roomDoc?.bannedIds.includes(senderId)) throw new UserError('You have been removed from this room.');
-    if (roomDoc?.mutedIds.includes(senderId)) throw new UserError('You are muted in this room.');
+    if (roomDoc?.bannedIds.includes(senderId)) {
+      respond({ ok: false, error: 'You have been removed from this room.' });
+      return;
+    }
+    if (roomDoc?.mutedIds.includes(senderId)) {
+      respond({ ok: false, error: 'You are muted in this room.' });
+      return;
+    }
 
     try {
-      const newMessage = await Message.create({ room, sender, senderId, text });
+      const newMessage = await Message.create({ room, sender, senderId, text, clientId: clientId || undefined });
       await publishEvent('message', {
         id: String(newMessage._id),
         room,
@@ -220,6 +220,7 @@ io.on('connection', (socket) => {
         clientId,
         timestamp: newMessage.timestamp,
       });
+      respond({ ok: true, clientId, timestamp: newMessage.timestamp });
     } catch (error) {
       if (error?.code === 11000) {
         // Stored by an earlier attempt whose acknowledgement never arrived;
@@ -342,7 +343,7 @@ io.on('connection', (socket) => {
     await publishEvent('reports_changed', { room: room.name });
   }));
 
-  socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
+  socket.on('disconnect', () => console.log(`User disconnected: ${sender} (${socket.id})`));
 });
 
 app.get('/health', (_req, res) => {
@@ -354,6 +355,7 @@ app.get('/health', (_req, res) => {
 
 async function start() {
   try {
+    getJwtSecret();
     await connectDB();
     await Promise.all([pubClient.connect(), subClient.connect()]);
     await subClient.subscribe(REDIS_CHAT_CHANNEL);
