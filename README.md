@@ -25,10 +25,6 @@ For a single Vercel project using the root `vercel.json`, set the repository roo
 
 The first user to join a room becomes its owner and can promote others to moderator. Owners can act on anyone; moderators only on regular members. Staff can delete messages, mute/unmute users and remove users from a room (removal is permanent for that room), and see a list of reported messages. Any user can report another user's message. Permissions are enforced on the server, and muted or removed users cannot send messages. Users are identified by an ID derived on the server from a private secret kept in the browser, so IDs seen in chat can't be used to impersonate someone; this is not a substitute for real accounts. Run backend tests with `npm test` in `backend/`.
 
-### Saved profile and room
-
-The display name and the last room you joined are saved in the browser's local storage (`gather-display-name`, `gather-room`) and restored on reload; the avatar initial follows the display name. Clearing the name falls back to "You", and saved values are re-checked against the input length limits. Nothing is stored on the server.
-
 Keep credentials in Render/Vercel environment settings. Do not commit `.env` files.
 
 ## Issues for contributors

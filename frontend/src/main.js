@@ -4,8 +4,6 @@ import './style.css';
 const serverUrl = import.meta.env.VITE_CHAT_SERVER_URL
   || (import.meta.env.PROD ? 'https://chat-server-2-fzyd.onrender.com' : 'http://localhost:5000');
 const socket = io(serverUrl, { autoConnect: false, transports: ['websocket'] });
-const nameKey = 'gather-display-name';
-const roomKey = 'gather-room';
 // Private identity secret: only the server-derived public ID is ever shown to others.
 const secretKey = 'gather-secret';
 const secret = localStorage.getItem(secretKey) || `${crypto.randomUUID()}${crypto.randomUUID()}`;
@@ -26,24 +24,7 @@ const reportsCount = document.querySelector('#reports-count');
 const reportsList = document.querySelector('#reports-list');
 const notice = document.querySelector('#notice');
 const myIdTag = document.querySelector('#my-user-id');
-
-// Restore the saved profile and room. Stored values are re-checked against the
-// input limits, since they can be edited or come from an older version.
-function readStored(key, maxLength) {
-  const value = (localStorage.getItem(key) || '').trim().slice(0, maxLength);
-  return value || null;
-}
-
-const identityDot = document.querySelector('.identity-dot');
-
-function updateIdentityDot() {
-  identityDot.textContent = (nameInput.value.trim() || 'You').slice(0, 1).toUpperCase();
-}
-
-nameInput.value = readStored(nameKey, nameInput.maxLength) || nameInput.value;
-roomInput.value = readStored(roomKey, roomInput.maxLength) || roomInput.value;
-roomTitle.textContent = roomInput.value.trim() || roomTitle.textContent;
-updateIdentityDot();
+const defaultName = 'You';
 
 let currentRoom = roomInput.value.trim() || 'general';
 let isConnected = false;
@@ -196,6 +177,40 @@ function markDeleted(row) {
   refreshRow(row);
 }
 
+function showPlaceholder(title, detail, loading = false) {
+  const note = document.createElement('div');
+  note.className = `welcome-note${loading ? ' is-loading' : ''}`;
+  note.dataset.placeholder = 'true';
+
+  const spark = document.createElement('span');
+  spark.className = 'welcome-spark';
+  spark.setAttribute('aria-hidden', 'true');
+  spark.textContent = '✳';
+
+  const heading = document.createElement('div');
+  heading.className = 'welcome-title';
+  heading.textContent = title;
+
+  const body = document.createElement('p');
+  body.textContent = detail;
+
+  note.append(spark, heading, body);
+  messageList.replaceChildren(note);
+}
+
+function showLoadingState(room) {
+  showPlaceholder('Loading messages', `Fetching the conversation in #${room}.`, true);
+}
+
+function showEmptyState(room) {
+  showPlaceholder('No messages yet', `Say hello to start the conversation in #${room}.`);
+}
+
+function removePlaceholder() {
+  const placeholder = messageList.querySelector('[data-placeholder]');
+  if (placeholder) placeholder.remove();
+}
+
 function flushOutbox() {
   if (!socket.connected) return;
 
@@ -233,6 +248,7 @@ function flushOutbox() {
 }
 
 function renderMessage(message, { pending = false } = {}) {
+  removePlaceholder();
   const clientId = typeof message.clientId === 'string' ? message.clientId : '';
   if (clientId && seenClientIds.has(clientId)) {
     // Already drawn. The echo is itself proof the server stored it.
@@ -290,6 +306,7 @@ function renderMessage(message, { pending = false } = {}) {
 
   if (message.deleted) markDeleted(row);
   else refreshRow(row);
+  messageDecorators.forEach((decorate) => decorate(row, message));
   messageList.scrollTop = messageList.scrollHeight;
 }
 
@@ -335,7 +352,6 @@ function joinRoom() {
   }
 
   currentRoom = nextRoom;
-  localStorage.setItem(roomKey, nextRoom);
   roomInput.value = nextRoom;
   roomTitle.textContent = nextRoom;
   roomState = { ownerId: '', moderators: [], mutedIds: [] };
@@ -380,6 +396,13 @@ socket.on('room_state', (state) => {
   if (isStaff()) socket.emit('list_reports', { room: currentRoom });
 });
 socket.on('chat_history', (history) => {
+  const messages = Array.isArray(history) ? history : [];
+  const hasQueued = outbox.some((message) => message.room === currentRoom);
+  if (!messages.length && !hasQueued) {
+    showEmptyState(currentRoom);
+    return;
+  }
+
   clearMessages();
   if (Array.isArray(history)) history.forEach((message) => renderMessage(message));
 
@@ -462,7 +485,7 @@ reportsList.addEventListener('click', (event) => {
 messageForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const text = messageInput.value.trim();
-  const sender = nameInput.value.trim() || 'You';
+  const sender = nameInput.value.trim() || defaultName;
   if (!text) return;
 
   const queued = {
@@ -483,16 +506,27 @@ messageForm.addEventListener('submit', (event) => {
   else showNotice('Offline. This will send when the connection is back.');
 });
 
-nameInput.addEventListener('input', () => {
-  const name = nameInput.value.trim();
-  if (name) localStorage.setItem(nameKey, name);
-  else localStorage.removeItem(nameKey);
-  updateIdentityDot();
-});
-
 document.querySelector('#join-button').addEventListener('click', joinRoom);
 roomInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') joinRoom();
 });
+
+// Features in src/features/*.js extend the chat without editing this file. A feature's
+// top-level code runs before this file does; its default export is called here, just
+// before connecting, with the context below.
+const messageDecorators = [];
+const featureContext = {
+  socket,
+  serverUrl,
+  elements: { messageList, messageForm, messageInput, nameInput, roomInput, roomTitle },
+  getRoom: () => currentRoom,
+  getName: () => nameInput.value.trim() || defaultName,
+  getUserId: () => myUserId,
+  showNotice,
+  // Called with (row, message) every time a message is drawn.
+  decorateMessage: (decorate) => messageDecorators.push(decorate),
+};
+Object.values(import.meta.glob('./features/*.js', { eager: true }))
+  .forEach((feature) => feature.default?.(featureContext));
 
 socket.connect();

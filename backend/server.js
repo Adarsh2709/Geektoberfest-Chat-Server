@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import crypto from 'node:crypto';
+import { readdir } from 'node:fs/promises';
 import express from 'express';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
@@ -95,11 +96,27 @@ async function removeUserFromRoom(room, userId) {
   }
 }
 
+// Feature modules in ./features/*.js extend the server without editing this file. They may export:
+//   setup(context)               once at startup, after the database is connected
+//   onConnection(socket, context) for every new socket
+//   onRedisMessage(payload)      for every event on the chat channel; return true if handled
+const features = [];
+const featureContext = { app, io, pubClient, allowedOrigins, publishEvent };
+
+async function loadFeatures() {
+  const directory = new URL('./features/', import.meta.url);
+  const files = (await readdir(directory)).filter((file) => file.endsWith('.js')).sort();
+  for (const file of files) features.push(await import(new URL(file, directory)));
+  for (const feature of features) await feature.setup?.(featureContext);
+}
+
 subClient.on('message', async (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
 
   try {
     const payload = JSON.parse(message);
+    if (features.some((feature) => feature.onRedisMessage?.(payload))) return;
+
     switch (payload.type) {
       case 'room_state':
         io.to(payload.room).emit('room_state', payload.state);
@@ -352,6 +369,8 @@ io.on('connection', (socket) => {
     await publishEvent('reports_changed', { room: room.name });
   }));
 
+  features.forEach((feature) => feature.onConnection?.(socket, featureContext));
+
   socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
 });
 
@@ -365,6 +384,7 @@ app.get('/health', (_req, res) => {
 async function start() {
   try {
     await connectDB();
+    await loadFeatures();
     await Promise.all([pubClient.connect(), subClient.connect()]);
     await subClient.subscribe(REDIS_CHAT_CHANNEL);
 
