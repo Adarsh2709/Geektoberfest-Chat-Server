@@ -21,6 +21,10 @@ For a separate Render backend and Vercel frontend, set the Vercel project's Root
 
 For a single Vercel project using the root `vercel.json`, set the repository root as the Root Directory. It builds `frontend/` and `backend/` as services, routes `/api/` and `/socket.io/` to the backend, and sends other paths to the frontend; leave `VITE_CHAT_SERVER_URL` unset so the browser connects to the same origin. Configure `MONGO_URL`, `REDIS_URL`, `JWT_SECRET`, and `FRONTEND_ORIGIN` for the backend service. Service bindings are not needed because the browser uses the public `/api` and Socket.IO rewrites and the backend does not call another Vercel service.
 
+### Moderation
+
+The first user to join a room becomes its owner and can promote others to moderator. Owners can act on anyone; moderators only on regular members. Staff can delete messages, mute/unmute users and remove users from a room (removal is permanent for that room), and see a list of reported messages. Any user can report another user's message. Permissions are enforced on the server, and muted or removed users cannot send messages. Roles, mutes, and removals are tied to the logged-in account (see Authentication below), so they follow a user across devices and can't be dodged by clearing browser storage. Run backend tests with `npm test` in `backend/`.
+
 Keep credentials in Render/Vercel environment settings. Do not commit `.env` files.
 
 ## Authentication
@@ -61,4 +65,4 @@ These are proposed improvements, not current deployment blockers. Pick one, open
 - [ ] Add direct messages, typing indicators, reactions, and online presence.
 - [ ] Add image/file attachments with type and size limits and external object storage.
 - [ ] Add message search and notifications for mentions or replies.
-- [ ] Add moderation tools such as reporting, muting, and room administrators.
+- [x] Add moderation tools such as reporting, muting, and room administrators.
