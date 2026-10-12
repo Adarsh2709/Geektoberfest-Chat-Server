@@ -21,11 +21,9 @@ For a separate Render backend and Vercel frontend, set the Vercel project's Root
 
 For a single Vercel project using the root `vercel.json`, set the repository root as the Root Directory. It builds `frontend/` and `backend/` as services, routes `/socket.io/` to the backend, and sends other paths to the frontend; leave `VITE_CHAT_SERVER_URL` unset so the browser connects to the same origin. Configure `MONGO_URL`, `REDIS_URL`, and `FRONTEND_ORIGIN` for the backend service. Service bindings are not needed because the browser uses the public Socket.IO rewrite and the backend does not call another Vercel service.
 
-### Search and mentions
+### Moderation
 
-`GET /api/search?room=<room>&q=<keyword>&user=<display name>` returns up to 20 messages per page, newest first, as `{ messages, hasMore }`. `q` is a case-insensitive substring match and `user` an exact, case-insensitive display-name match; at least one is required. Pass `before=<createdAt of the last result>` to load older pages. The UI exposes this as the search box in the room header.
-
-Mentions are detected on the server (`@name`, with spaces in display names removed, case-insensitive: `@harshavitank`) and sent with each message. Mentioned users see the message highlighted and a notice; if the tab is in the background the page title shows an unread count, and desktop notifications are shown once enabled from the sidebar button. Each message has a Reply button that inserts `@name` into the composer. Mentions match display names, which are not unique or verified. Run backend tests with `npm test` in `backend/`.
+The first user to join a room becomes its owner and can promote others to moderator. Owners can act on anyone; moderators only on regular members. Staff can delete messages, mute/unmute users and remove users from a room (removal is permanent for that room), and see a list of reported messages. Any user can report another user's message. Permissions are enforced on the server, and muted or removed users cannot send messages. Users are identified by an ID derived on the server from a private secret kept in the browser, so IDs seen in chat can't be used to impersonate someone; this is not a substitute for real accounts. Run backend tests with `npm test` in `backend/`.
 
 Keep credentials in Render/Vercel environment settings. Do not commit `.env` files.
 
@@ -57,4 +55,4 @@ These are proposed improvements, not current deployment blockers. Pick one, open
 - [ ] Add direct messages, typing indicators, reactions, and online presence.
 - [ ] Add image/file attachments with type and size limits and external object storage.
 - [x] Add message search and notifications for mentions or replies.
-- [ ] Add moderation tools such as reporting, muting, and room administrators.
+- [x] Add moderation tools such as reporting, muting, and room administrators.

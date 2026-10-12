@@ -1,0 +1,10 @@
+.message-row.is-mention .message-bubble { box-shadow: 0 0 0 2px #e9b872; }
+.mention { padding: 0 3px; border-radius: 4px; background: #fbe7c6; color: #7a4f1d; font-weight: 700; }
+.message-row.is-mine .mention { background: rgba(255, 255, 255, .22); color: #fff; }
+.message-reply { margin-left: auto; padding: 0 7px; opacity: 0; }
+.message-row:hover .message-reply, .message-reply:focus-visible { opacity: 1; }
+.alerts-button { margin-top: 6px; }
+
+@media (max-width: 640px) {
+  .message-reply { opacity: 1; }
+}

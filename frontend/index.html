@@ -17,6 +17,7 @@
         <label class="identity-field">
           <span class="identity-dot" aria-hidden="true">Y</span>
           <input id="name-input" aria-label="Your display name" maxlength="24" value="You" />
+          <span id="my-user-id" class="user-id-tag"></span>
         </label>
       </header>
 
@@ -28,8 +29,7 @@
             <input id="room-input" aria-label="Room name" maxlength="32" value="general" />
             <button id="join-button" class="join-button" type="button" title="Join room" aria-label="Join room">↵</button>
           </div>
-          <p class="room-hint">Choose a room and say hello. Mention someone with @name (no spaces).</p>
-          <button id="alerts-button" class="message-action" type="button" hidden>Enable desktop alerts</button>
+          <p class="room-hint">Choose a room and say hello.</p>
           <div class="rail-bottom">
             <span class="online-dot" aria-hidden="true"></span>
             <span id="connection-label">Connecting</span>
@@ -42,30 +42,19 @@
               <div class="eyebrow">ROOM</div>
               <h1><span class="heading-hash">#</span><span id="room-title">general</span></h1>
             </div>
-            <form id="search-form" class="search-form" role="search">
-              <label class="sr-only" for="search-input">Search messages by keyword</label>
-              <input id="search-input" type="search" maxlength="100" placeholder="Search messages" autocomplete="off" />
-              <label class="sr-only" for="search-user">Only messages from this user</label>
-              <input id="search-user" type="search" maxlength="24" placeholder="From user" autocomplete="off" />
-              <button class="search-button" type="submit" aria-label="Search" title="Search">⌕</button>
-            </form>
-            <div class="people-count"><span class="people-icon" aria-hidden="true">••</span> Live chat</div>
+            <div class="people-count"><span class="people-icon" aria-hidden="true">••</span> Live chat <span id="role-label" class="role-label"></span></div>
           </div>
 
-          <section id="search-results" class="search-results" aria-label="Search results" hidden>
-            <div class="search-results-header">
-              <span id="search-summary"></span>
-              <button id="search-close" class="message-action" type="button">Close</button>
-            </div>
-            <ul id="search-list" class="search-list"></ul>
-            <button id="search-more" class="message-action" type="button" hidden>Show older results</button>
-          </section>
+          <details id="reports-panel" class="reports-panel" hidden>
+            <summary>Reported messages (<span id="reports-count">0</span>)</summary>
+            <ul id="reports-list" class="reports-list"></ul>
+          </details>
 
           <div id="message-list" class="message-list" role="log" aria-live="polite" aria-relevant="additions text">
-            <div class="welcome-note">
+            <div class="welcome-note is-loading" data-placeholder="true">
               <span class="welcome-spark" aria-hidden="true">✳</span>
-              <div class="welcome-title">Welcome to the room</div>
-              <p>Messages here are shared with everyone who joins.</p>
+              <div class="welcome-title">Loading messages</div>
+              <p>Fetching the conversation.</p>
             </div>
           </div>
 

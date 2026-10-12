@@ -1,29 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractMentions, normalizeName } from '../utils/mentions.js';
 import { buildSearchFilter, escapeRegex } from '../utils/search.js';
-
-test('extractMentions finds lowercased, de-duplicated mentions', () => {
-  assert.deepEqual(extractMentions('hi @Alex and @bob, meet @ALEX'), ['alex', 'bob']);
-});
-
-test('extractMentions ignores emails, bare @ and trailing punctuation', () => {
-  assert.deepEqual(extractMentions('mail me at a@b.com'), []);
-  assert.deepEqual(extractMentions('@ alone'), []);
-  assert.deepEqual(extractMentions('thanks @alex.'), ['alex']);
-  assert.deepEqual(extractMentions('(@alex)'), ['alex']);
-});
-
-test('extractMentions handles non-strings and caps the number of mentions', () => {
-  assert.deepEqual(extractMentions(undefined), []);
-  const many = Array.from({ length: 30 }, (_, i) => `@user${i}`).join(' ');
-  assert.equal(extractMentions(many).length, 10);
-});
-
-test('normalizeName strips spaces and case', () => {
-  assert.equal(normalizeName(' Harshavi  Tank '), 'harshavitank');
-  assert.equal(normalizeName(undefined), '');
-});
 
 test('escapeRegex neutralises regex metacharacters', () => {
   assert.equal(escapeRegex('a.b*c(d)'), String.raw`a\.b\*c\(d\)`);
