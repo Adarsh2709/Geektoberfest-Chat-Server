@@ -21,6 +21,10 @@ For a separate Render backend and Vercel frontend, set the Vercel project's Root
 
 For a single Vercel project using the root `vercel.json`, set the repository root as the Root Directory. It builds `frontend/` and `backend/` as services, routes `/socket.io/` to the backend, and sends other paths to the frontend; leave `VITE_CHAT_SERVER_URL` unset so the browser connects to the same origin. Configure `MONGO_URL`, `REDIS_URL`, and `FRONTEND_ORIGIN` for the backend service. Service bindings are not needed because the browser uses the public Socket.IO rewrite and the backend does not call another Vercel service.
 
+### Moderation
+
+The first user to join a room becomes its owner and can promote others to moderator. Owners can act on anyone; moderators only on regular members. Staff can delete messages, mute/unmute users and remove users from a room (removal is permanent for that room), and see a list of reported messages. Any user can report another user's message. Permissions are enforced on the server, and muted or removed users cannot send messages. Users are identified by an ID derived on the server from a private secret kept in the browser, so IDs seen in chat can't be used to impersonate someone; this is not a substitute for real accounts. Run backend tests with `npm test` in `backend/`.
+
 ### Typing indicators
 
 Clients emit `typing` with `{ room, sender, senderId, typing }` while the user types. The server only accepts it from sockets that joined the room, throttles "started typing" events to one per second per socket, relays it through Redis so every backend instance reaches its clients, and announces "stopped typing" if the user disconnects mid-sentence. The UI shows "X is typing", "X and Y are typing" or "Several people are typing" above the composer; typing stops after 3 seconds without keystrokes, on send, or when the input loses focus, and an indicator the client stops hearing about expires after 5 seconds. Typing events are not stored. Run backend tests with `npm test` in `backend/`.
@@ -55,4 +59,4 @@ These are proposed improvements, not current deployment blockers. Pick one, open
 - [ ] Add direct messages, typing indicators, reactions, and online presence.
 - [ ] Add image/file attachments with type and size limits and external object storage.
 - [ ] Add message search and notifications for mentions or replies.
-- [ ] Add moderation tools such as reporting, muting, and room administrators.
+- [x] Add moderation tools such as reporting, muting, and room administrators.
