@@ -50,19 +50,25 @@ test('validateMessage accepts a well-formed message', () => {
   const result = validateMessage({
     room: ' general ',
     sender: ' Alex ',
-    senderId: '3f2a9c1e-5b7d-4e1a-9c2b-0d4e6f8a1b3c',
+    clientId: '3f2a9c1e-5b7d-4e1a-9c2b-0d4e6f8a1b3c',
     text: ' hi\nthere ',
   });
   assert.deepEqual(result, {
     ok: true,
-    value: { room: 'general', sender: 'Alex', senderId: '3f2a9c1e-5b7d-4e1a-9c2b-0d4e6f8a1b3c', text: 'hi\nthere' },
+    value: { room: 'general', sender: 'Alex', text: 'hi\nthere', clientId: '3f2a9c1e-5b7d-4e1a-9c2b-0d4e6f8a1b3c' },
   });
 });
 
-test('validateMessage allows a missing senderId (e.g. the CLI client)', () => {
+test('validateMessage allows a missing clientId (e.g. the CLI client)', () => {
   const result = validateMessage({ room: 'general', sender: 'cli', text: 'hello' });
   assert.equal(result.ok, true);
-  assert.equal(result.value.senderId, '');
+  assert.equal('clientId' in result.value, false);
+});
+
+test('validateMessage drops a client-supplied senderId', () => {
+  const result = validateMessage({ room: 'general', sender: 'cli', text: 'hello', senderId: 'someone-else' });
+  assert.equal(result.ok, true);
+  assert.equal('senderId' in result.value, false);
 });
 
 test('validateMessage rejects non-objects and wrong field types', () => {
@@ -80,7 +86,7 @@ test('validateMessage rejects over-length fields instead of truncating', () => {
   assert.equal(validateMessage({ ...base, text: 'x'.repeat(1001) }).ok, false);
   assert.equal(validateMessage({ ...base, text: 'x'.repeat(1000) }).ok, true);
   assert.equal(validateMessage({ ...base, sender: 'x'.repeat(25) }).ok, false);
-  assert.equal(validateMessage({ ...base, senderId: 'x'.repeat(65) }).ok, false);
+  assert.equal(validateMessage({ ...base, clientId: 'x'.repeat(65) }).ok, false);
 });
 
 test('validateMessage rejects blank text and control characters', () => {
@@ -90,9 +96,9 @@ test('validateMessage rejects blank text and control characters', () => {
   assert.equal(validateMessage({ ...base, sender: 'Al\u0000ex' }).ok, false);
 });
 
-test('validateMessage rejects malformed senderId values', () => {
+test('validateMessage rejects malformed clientId values', () => {
   const base = { room: 'general', sender: 'Alex', text: 'hi' };
-  assert.equal(validateMessage({ ...base, senderId: 'has spaces' }).ok, false);
-  assert.equal(validateMessage({ ...base, senderId: '<script>' }).ok, false);
-  assert.equal(validateMessage({ ...base, senderId: 123 }).ok, false);
+  assert.equal(validateMessage({ ...base, clientId: 'has spaces' }).ok, false);
+  assert.equal(validateMessage({ ...base, clientId: '<script>' }).ok, false);
+  assert.equal(validateMessage({ ...base, clientId: 123 }).ok, false);
 });

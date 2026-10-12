@@ -1,5 +1,6 @@
 import { io } from "socket.io-client";
 import readline from "readline";
+import crypto from "node:crypto";
 
 console.log("Connecting directly to Socket.io backend...");
 
@@ -61,7 +62,7 @@ function initSession() {
       if (!room) return initSession();
 
       // Fire backend room assignment
-      socket.emit("join_room", room);
+      socket.emit("join_room", { room, secret: crypto.randomUUID() + crypto.randomUUID() });
       console.log(`\n--- Inside Room: ${room} ---`);
       
       rl.setPrompt(`${username}> `);

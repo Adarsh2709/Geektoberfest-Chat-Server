@@ -1,12 +1,12 @@
 export const LIMITS = {
   room: 32,
   sender: 24,
-  senderId: 64,
+  clientId: 64,
   text: 1000,
 };
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
-const SENDER_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const CLIENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -26,6 +26,7 @@ export function validateRoom(roomName) {
   return result.error ? { ok: false, error: result.error } : { ok: true, value: result.value };
 }
 
+// The sender's user ID is never taken from the client, so it is not validated here.
 export function validateMessage(data) {
   if (!isPlainObject(data)) return { ok: false, error: 'Invalid message.' };
 
@@ -38,17 +39,19 @@ export function validateMessage(data) {
   const text = cleanString(data.text, 'Message', LIMITS.text);
   if (text.error) return { ok: false, error: text.error };
 
-  let senderId = '';
-  if (data.senderId !== undefined && data.senderId !== null && data.senderId !== '') {
+  const value = { room: room.value, sender: sender.value, text: text.value };
+
+  // Optional: lets the sender retry a message without it being stored twice.
+  if (data.clientId !== undefined && data.clientId !== null && data.clientId !== '') {
     if (
-      typeof data.senderId !== 'string'
-      || data.senderId.length > LIMITS.senderId
-      || !SENDER_ID_PATTERN.test(data.senderId)
+      typeof data.clientId !== 'string'
+      || data.clientId.length > LIMITS.clientId
+      || !CLIENT_ID_PATTERN.test(data.clientId)
     ) {
-      return { ok: false, error: 'Invalid user ID.' };
+      return { ok: false, error: 'Invalid message ID.' };
     }
-    senderId = data.senderId;
+    value.clientId = data.clientId;
   }
 
-  return { ok: true, value: { room: room.value, sender: sender.value, senderId, text: text.value } };
+  return { ok: true, value };
 }
