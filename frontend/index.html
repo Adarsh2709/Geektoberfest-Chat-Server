@@ -14,14 +14,35 @@
           <span>gather<span class="brand-period">.</span></span>
         </a>
         <div class="topbar-note">A little room to talk</div>
-        <label class="identity-field">
-          <span class="identity-dot" aria-hidden="true">Y</span>
-          <input id="name-input" aria-label="Your display name" maxlength="24" value="You" />
-          <span id="my-user-id" class="user-id-tag"></span>
-        </label>
+        <div id="identity" class="identity-field" hidden>
+          <span id="identity-dot" class="identity-dot" aria-hidden="true"></span>
+          <span id="identity-name" class="identity-name"></span>
+          <button id="logout-button" class="logout-button" type="button">Log out</button>
+        </div>
       </header>
 
-      <main class="chat-shell">
+      <main id="auth-view" class="auth-shell" hidden>
+        <form id="auth-form" class="auth-card">
+          <div id="auth-eyebrow" class="eyebrow">WELCOME BACK</div>
+          <h1 id="auth-title">Log in to gather</h1>
+          <label class="auth-field">
+            <span>Username</span>
+            <input id="auth-username" autocomplete="username" maxlength="24" required />
+          </label>
+          <label class="auth-field">
+            <span>Password</span>
+            <input id="auth-password" type="password" autocomplete="current-password" maxlength="128" required />
+          </label>
+          <button id="auth-submit" class="auth-submit" type="submit">Log in</button>
+          <p class="auth-switch">
+            <span id="auth-switch-text">New here?</span>
+            <button id="auth-switch" type="button">Create an account</button>
+          </p>
+          <div id="auth-notice" class="notice" role="alert"></div>
+        </form>
+      </main>
+
+      <main id="chat-view" class="chat-shell" hidden>
         <aside class="room-rail" aria-label="Chat room">
           <div class="rail-heading">YOUR SPACE</div>
           <div class="room-current">

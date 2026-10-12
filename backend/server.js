@@ -1,17 +1,18 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import crypto from 'node:crypto';
-import { readdir } from 'node:fs/promises';
 import express from 'express';
+import cors from 'cors';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
 import http from 'node:http';
+import { readdir } from 'node:fs/promises';
 import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
 import { Message } from './models/user.js';
 import { Report, Room } from './models/moderation.js';
 import { canManageModerators, canModerate, getRole, isStaff } from './utils/permissions.js';
+import { authRouter, authenticateSocket, getJwtSecret } from './auth.js';
 
 const REDIS_CHAT_CHANNEL = 'CHAT_ROOMS';
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -36,31 +37,28 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
 });
+app.set('io', io);
+app.use('/api', cors({ origin: allowedOrigins }));
+app.use('/api/auth', authRouter);
+io.use(authenticateSocket);
 
 // An error whose message is safe to show to the user.
 class UserError extends Error {}
-
-const USER_ID_PATTERN = /^[a-f0-9]{32}$/;
 
 function cleanRoomName(value) {
   if (typeof value !== 'string' || !value.trim()) throw new UserError('Enter a room name first.');
   return value.trim().slice(0, 32);
 }
 
+// User IDs are account IDs, so they are Mongo ObjectIds.
 function cleanUserId(value) {
-  if (typeof value !== 'string' || !USER_ID_PATTERN.test(value)) throw new UserError('Invalid user.');
+  if (typeof value !== 'string' || !mongoose.isValidObjectId(value)) throw new UserError('Invalid user.');
   return value;
 }
 
 function cleanMessageId(value) {
   if (typeof value !== 'string' || !mongoose.isValidObjectId(value)) throw new UserError('Invalid message.');
   return value;
-}
-
-// The public user ID is derived from a private secret that never leaves the
-// sender's browser, so IDs seen in chat cannot be used to impersonate someone.
-function deriveUserId(secret) {
-  return crypto.createHash('sha256').update(secret).digest('hex').slice(0, 32);
 }
 
 function roomState(room) {
@@ -97,9 +95,9 @@ async function removeUserFromRoom(room, userId) {
 }
 
 // Feature modules in ./features/*.js extend the server without editing this file. They may export:
-//   setup(context)               once at startup, after the database is connected
-//   onConnection(socket, context) for every new socket
-//   onRedisMessage(payload)      for every event on the chat channel; return true if handled
+//   setup(context)                once at startup, after the database is connected
+//   onConnection(socket, context) for every new, authenticated socket
+//   onRedisMessage(payload)       for every event on the chat channel; return true if handled
 const features = [];
 const featureContext = { app, io, pubClient, subClient, allowedOrigins, publishEvent };
 
@@ -143,28 +141,29 @@ subClient.on('message', async (channel, message) => {
 });
 
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  const { id: senderId, username: sender } = socket.data.user;
+  console.log(`User connected: ${sender} (${socket.id})`);
+  // Moderation and message ownership both key off the authenticated account.
+  socket.data.userId = senderId;
+  // Lets logout disconnect every socket belonging to this user.
+  socket.join(`user:${senderId}`);
 
   // Runs a socket event handler, turning failures into a chat_error for the sender.
   const handle = (fn) => async (...args) => {
-    // Events sent with an acknowledgement callback report failures through it.
-    const ack = args.find((arg) => typeof arg === 'function');
-    const fail = (message) => (ack ? ack({ ok: false, error: message }) : socket.emit('chat_error', message));
     try {
       await fn(...args);
     } catch (error) {
       if (error instanceof UserError) {
-        fail(error.message);
+        socket.emit('chat_error', error.message);
       } else {
         console.error(`Socket handler failed: ${error.message}`);
-        fail('Something went wrong.');
+        socket.emit('chat_error', 'Something went wrong.');
       }
     }
   };
 
   async function loadModerationContext(roomName) {
     const actorId = socket.data.userId;
-    if (!actorId) throw new UserError('Join a room first.');
     const room = await Room.findOne({ name: cleanRoomName(roomName) });
     if (!room) throw new UserError('Room not found.');
     return { actorId, room };
@@ -175,23 +174,14 @@ io.on('connection', (socket) => {
   }
 
   socket.on('join_room', handle(async (payload) => {
-    // Plain-string payloads (older clients) join without an identity.
     const room = cleanRoomName(typeof payload === 'string' ? payload : payload?.room);
-    const secret = typeof payload === 'object' ? payload?.secret : undefined;
-    if (secret !== undefined && (typeof secret !== 'string' || secret.length < 16 || secret.length > 128)) {
-      throw new UserError('Invalid identity.');
-    }
-
-    const userId = secret ? deriveUserId(secret) : '';
-    socket.data.userId = userId;
-
-    const roomDoc = await ensureRoom(room, userId);
-    if (roomDoc?.bannedIds.includes(userId)) {
+    const roomDoc = await ensureRoom(room, senderId);
+    if (roomDoc?.bannedIds.includes(senderId)) {
       throw new UserError('You have been removed from this room.');
     }
 
     socket.join(room);
-    if (userId) socket.emit('identity', { userId });
+    socket.emit('identity', { userId: senderId });
     if (roomDoc) socket.emit('room_state', roomState(roomDoc));
 
     try {
@@ -200,7 +190,6 @@ io.on('connection', (socket) => {
         id: String(message._id),
         sender: message.sender,
         senderId: message.senderId,
-        clientId: message.clientId,
         text: message.deleted ? '' : message.text,
         deleted: Boolean(message.deleted),
         timestamp: message.timestamp,
@@ -212,6 +201,7 @@ io.on('connection', (socket) => {
     }
   }));
 
+  // The sender always comes from the authenticated socket, never from the payload.
   socket.on('send_message', handle(async (data, ack) => {
     // Clients without an ack callback (the CLI client) still get chat_error.
     const respond = typeof ack === 'function'
@@ -219,21 +209,22 @@ io.on('connection', (socket) => {
       : (result) => { if (!result.ok) socket.emit('chat_error', result.error); };
 
     const room = typeof data?.room === 'string' ? data.room.trim().slice(0, 32) : '';
-    const sender = typeof data?.sender === 'string' ? data.sender.trim().slice(0, 24) : '';
     const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 1000) : '';
     const clientId = typeof data?.clientId === 'string' ? data.clientId.slice(0, 64) : '';
-    if (!room || !sender || !text) {
-      respond({ ok: false, error: 'Message needs a room, a sender, and some text.' });
+    if (!room || !text) {
+      respond({ ok: false, error: 'Message needs a room and some text.' });
       return;
     }
 
-    // The sender is whoever proved their identity when joining, never a client-supplied ID.
-    const senderId = socket.data.userId;
-    if (!senderId) throw new UserError('Reload the page to keep chatting.');
-
     const roomDoc = await Room.findOne({ name: room }).lean();
-    if (roomDoc?.bannedIds.includes(senderId)) throw new UserError('You have been removed from this room.');
-    if (roomDoc?.mutedIds.includes(senderId)) throw new UserError('You are muted in this room.');
+    if (roomDoc?.bannedIds.includes(senderId)) {
+      respond({ ok: false, error: 'You have been removed from this room.' });
+      return;
+    }
+    if (roomDoc?.mutedIds.includes(senderId)) {
+      respond({ ok: false, error: 'You are muted in this room.' });
+      return;
+    }
 
     try {
       const newMessage = await Message.create({ room, sender, senderId, text, clientId: clientId || undefined });
@@ -371,7 +362,7 @@ io.on('connection', (socket) => {
 
   features.forEach((feature) => feature.onConnection?.(socket, featureContext));
 
-  socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
+  socket.on('disconnect', () => console.log(`User disconnected: ${sender} (${socket.id})`));
 });
 
 app.get('/health', (_req, res) => {
@@ -383,6 +374,7 @@ app.get('/health', (_req, res) => {
 
 async function start() {
   try {
+    getJwtSecret();
     await connectDB();
     await loadFeatures();
     await Promise.all([pubClient.connect(), subClient.connect()]);

@@ -8,11 +8,13 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      - key: TRUST_PROXY
+        value: 'true'
       - key: MONGO_URL
         sync: false
       - key: REDIS_URL
         sync: false
       - key: FRONTEND_ORIGIN
         sync: false
-      - key: TRUST_PROXY
-        value: 'true'
+      - key: JWT_SECRET
+        generateValue: true

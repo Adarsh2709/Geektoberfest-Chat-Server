@@ -13,8 +13,9 @@ Render so limits use the real client address instead of the proxy's.
 ## Payload validation
 
 `join_room` and `send_message` payloads are checked for type, length and control characters
-(room 32, display name 24, message 1000, optional `clientId` 64 and alphanumeric) and rejected with
-a message instead of being silently truncated. The sender's user ID is never taken from the client.
+(room 32, message 1000, optional `clientId` 64 and alphanumeric) and rejected with a message
+instead of being silently truncated. The sender is the logged-in account; a name or ID sent by the
+client is ignored.
 Socket payloads over 16 KB are refused by the transport.
 
 ## Graceful shutdown

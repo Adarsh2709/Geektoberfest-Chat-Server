@@ -1,6 +1,5 @@
 export const LIMITS = {
   room: 32,
-  sender: 24,
   clientId: 64,
   text: 1000,
 };
@@ -26,20 +25,17 @@ export function validateRoom(roomName) {
   return result.error ? { ok: false, error: result.error } : { ok: true, value: result.value };
 }
 
-// The sender's user ID is never taken from the client, so it is not validated here.
+// The sender is the logged-in account, never a name or ID from the client, so neither is read here.
 export function validateMessage(data) {
   if (!isPlainObject(data)) return { ok: false, error: 'Invalid message.' };
 
   const room = validateRoom(data.room);
   if (!room.ok) return room;
 
-  const sender = cleanString(data.sender, 'Display name', LIMITS.sender);
-  if (sender.error) return { ok: false, error: sender.error };
-
   const text = cleanString(data.text, 'Message', LIMITS.text);
   if (text.error) return { ok: false, error: text.error };
 
-  const value = { room: room.value, sender: sender.value, text: text.value };
+  const value = { room: room.value, text: text.value };
 
   // Optional: lets the sender retry a message without it being stored twice.
   if (data.clientId !== undefined && data.clientId !== null && data.clientId !== '') {

@@ -16,6 +16,12 @@
   },
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "chat-server-api"
+      }
+    },
+    {
       "source": "/socket.io/(.*)",
       "destination": {
         "service": "chat-server-api"
