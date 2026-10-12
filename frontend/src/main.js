@@ -23,17 +23,8 @@ const reportsPanel = document.querySelector('#reports-panel');
 const reportsCount = document.querySelector('#reports-count');
 const reportsList = document.querySelector('#reports-list');
 const notice = document.querySelector('#notice');
-const typingIndicator = document.querySelector('#typing-indicator');
-
-const TYPING_REFRESH_MS = 2000;
-const TYPING_IDLE_MS = 3000;
-const TYPING_EXPIRY_MS = 5000;
-
-const remoteTypers = new Map();
-let isTyping = false;
-let lastTypingSentAt = 0;
-let typingIdleId;
 const myIdTag = document.querySelector('#my-user-id');
+const defaultName = 'You';
 
 let currentRoom = roomInput.value.trim() || 'general';
 let isConnected = false;
@@ -186,6 +177,40 @@ function markDeleted(row) {
   refreshRow(row);
 }
 
+function showPlaceholder(title, detail, loading = false) {
+  const note = document.createElement('div');
+  note.className = `welcome-note${loading ? ' is-loading' : ''}`;
+  note.dataset.placeholder = 'true';
+
+  const spark = document.createElement('span');
+  spark.className = 'welcome-spark';
+  spark.setAttribute('aria-hidden', 'true');
+  spark.textContent = '✳';
+
+  const heading = document.createElement('div');
+  heading.className = 'welcome-title';
+  heading.textContent = title;
+
+  const body = document.createElement('p');
+  body.textContent = detail;
+
+  note.append(spark, heading, body);
+  messageList.replaceChildren(note);
+}
+
+function showLoadingState(room) {
+  showPlaceholder('Loading messages', `Fetching the conversation in #${room}.`, true);
+}
+
+function showEmptyState(room) {
+  showPlaceholder('No messages yet', `Say hello to start the conversation in #${room}.`);
+}
+
+function removePlaceholder() {
+  const placeholder = messageList.querySelector('[data-placeholder]');
+  if (placeholder) placeholder.remove();
+}
+
 function flushOutbox() {
   if (!socket.connected) return;
 
@@ -223,6 +248,7 @@ function flushOutbox() {
 }
 
 function renderMessage(message, { pending = false } = {}) {
+  removePlaceholder();
   const clientId = typeof message.clientId === 'string' ? message.clientId : '';
   if (clientId && seenClientIds.has(clientId)) {
     // Already drawn. The echo is itself proof the server stored it.
@@ -280,53 +306,8 @@ function renderMessage(message, { pending = false } = {}) {
 
   if (message.deleted) markDeleted(row);
   else refreshRow(row);
+  messageDecorators.forEach((decorate) => decorate(row, message));
   messageList.scrollTop = messageList.scrollHeight;
-}
-
-function renderTypingIndicator() {
-  const names = [...remoteTypers.values()].map((typer) => typer.name);
-  typingIndicator.replaceChildren();
-  if (!names.length) return;
-
-  let text = 'Several people are typing';
-  if (names.length === 1) text = `${names[0]} is typing`;
-  else if (names.length === 2) text = `${names[0]} and ${names[1]} are typing`;
-
-  const dots = document.createElement('span');
-  dots.className = 'typing-dots';
-  dots.setAttribute('aria-hidden', 'true');
-  dots.append(...[0, 1, 2].map(() => document.createElement('span')));
-  typingIndicator.append(text, dots);
-}
-
-// Remote typers expire on their own, so a lost "stopped typing" event can't leave a stuck indicator.
-function setRemoteTyping(typerId, name, typing) {
-  window.clearTimeout(remoteTypers.get(typerId)?.timeoutId);
-  if (typing) {
-    const timeoutId = window.setTimeout(() => setRemoteTyping(typerId, name, false), TYPING_EXPIRY_MS);
-    remoteTypers.set(typerId, { name, timeoutId });
-  } else {
-    remoteTypers.delete(typerId);
-  }
-  renderTypingIndicator();
-}
-
-function clearRemoteTypers() {
-  remoteTypers.forEach((typer) => window.clearTimeout(typer.timeoutId));
-  remoteTypers.clear();
-  renderTypingIndicator();
-}
-
-function sendTyping(typing) {
-  if (!socket.connected) return;
-  socket.emit('typing', { room: currentRoom, sender: nameInput.value.trim() || 'You', typing });
-}
-
-function stopTyping() {
-  window.clearTimeout(typingIdleId);
-  if (!isTyping) return;
-  isTyping = false;
-  sendTyping(false);
 }
 
 function renderReports(reports) {
@@ -375,8 +356,6 @@ function joinRoom() {
   roomTitle.textContent = nextRoom;
   roomState = { ownerId: '', moderators: [], mutedIds: [] };
   isRemoved = false;
-  stopTyping();
-  clearRemoteTypers();
   clearMessages();
   renderReports([]);
   refreshAllRows();
@@ -395,9 +374,6 @@ socket.on('connect', () => {
 
 socket.on('disconnect', () => {
   setConnectionState(false);
-  window.clearTimeout(typingIdleId);
-  isTyping = false;
-  clearRemoteTypers();
   requeueOutbox();
 });
 socket.on('connect_error', () => {
@@ -420,6 +396,13 @@ socket.on('room_state', (state) => {
   if (isStaff()) socket.emit('list_reports', { room: currentRoom });
 });
 socket.on('chat_history', (history) => {
+  const messages = Array.isArray(history) ? history : [];
+  const hasQueued = outbox.some((message) => message.room === currentRoom);
+  if (!messages.length && !hasQueued) {
+    showEmptyState(currentRoom);
+    return;
+  }
+
   clearMessages();
   if (Array.isArray(history)) history.forEach((message) => renderMessage(message));
 
@@ -429,14 +412,7 @@ socket.on('chat_history', (history) => {
     if (message.room === currentRoom) renderMessage(message, { pending: true });
   }
 });
-socket.on('receive_message', (message) => {
-  setRemoteTyping(message.senderId, '', false);
-  renderMessage(message);
-});
-socket.on('typing', ({ room, sender, senderId: typerId, socketId, typing }) => {
-  if (room !== currentRoom || socketId === socket.id) return;
-  setRemoteTyping(typerId, String(sender || 'Someone'), typing);
-});
+socket.on('receive_message', renderMessage);
 socket.on('message_deleted', ({ messageId }) => {
   messageList.querySelectorAll('.message-row').forEach((row) => {
     if (row.dataset.messageId === messageId) markDeleted(row);
@@ -512,7 +488,6 @@ messageForm.addEventListener('submit', (event) => {
   const sender = nameInput.value.trim() || defaultName;
   if (!text) return;
 
-  stopTyping();
   const queued = {
     clientId: crypto.randomUUID(),
     room: currentRoom,
@@ -531,26 +506,27 @@ messageForm.addEventListener('submit', (event) => {
   else showNotice('Offline. This will send when the connection is back.');
 });
 
-messageInput.addEventListener('input', () => {
-  if (!messageInput.value.trim()) {
-    stopTyping();
-    return;
-  }
-
-  const now = Date.now();
-  if (!isTyping || now - lastTypingSentAt >= TYPING_REFRESH_MS) {
-    isTyping = true;
-    lastTypingSentAt = now;
-    sendTyping(true);
-  }
-  window.clearTimeout(typingIdleId);
-  typingIdleId = window.setTimeout(stopTyping, TYPING_IDLE_MS);
-});
-messageInput.addEventListener('blur', stopTyping);
-
 document.querySelector('#join-button').addEventListener('click', joinRoom);
 roomInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') joinRoom();
 });
+
+// Features in src/features/*.js extend the chat without editing this file. A feature's
+// top-level code runs before this file does; its default export is called here, just
+// before connecting, with the context below.
+const messageDecorators = [];
+const featureContext = {
+  socket,
+  serverUrl,
+  elements: { messageList, messageForm, messageInput, nameInput, roomInput, roomTitle },
+  getRoom: () => currentRoom,
+  getName: () => nameInput.value.trim() || defaultName,
+  getUserId: () => myUserId,
+  showNotice,
+  // Called with (row, message) every time a message is drawn.
+  decorateMessage: (decorate) => messageDecorators.push(decorate),
+};
+Object.values(import.meta.glob('./features/*.js', { eager: true }))
+  .forEach((feature) => feature.default?.(featureContext));
 
 socket.connect();

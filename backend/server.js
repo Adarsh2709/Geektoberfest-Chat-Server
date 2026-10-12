@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import crypto from 'node:crypto';
+import { readdir } from 'node:fs/promises';
 import express from 'express';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
@@ -11,7 +12,6 @@ import { connectDB } from './config/db.js';
 import { Message } from './models/user.js';
 import { Report, Room } from './models/moderation.js';
 import { canManageModerators, canModerate, getRole, isStaff } from './utils/permissions.js';
-import { parseTypingEvent, shouldRelayTyping } from './utils/typing.js';
 
 const REDIS_CHAT_CHANNEL = 'CHAT_ROOMS';
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -96,17 +96,28 @@ async function removeUserFromRoom(room, userId) {
   }
 }
 
+// Feature modules in ./features/*.js extend the server without editing this file. They may export:
+//   setup(context)               once at startup, after the database is connected
+//   onConnection(socket, context) for every new socket
+//   onRedisMessage(payload)      for every event on the chat channel; return true if handled
+const features = [];
+const featureContext = { app, io, pubClient, allowedOrigins, publishEvent };
+
+async function loadFeatures() {
+  const directory = new URL('./features/', import.meta.url);
+  const files = (await readdir(directory)).filter((file) => file.endsWith('.js')).sort();
+  for (const file of files) features.push(await import(new URL(file, directory)));
+  for (const feature of features) await feature.setup?.(featureContext);
+}
+
 subClient.on('message', async (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
 
   try {
     const payload = JSON.parse(message);
+    if (features.some((feature) => feature.onRedisMessage?.(payload))) return;
+
     switch (payload.type) {
-      case 'typing': {
-        const event = parseTypingEvent(payload);
-        if (event) io.to(event.room).emit('typing', event);
-        break;
-      }
       case 'room_state':
         io.to(payload.room).emit('room_state', payload.state);
         break;
@@ -358,34 +369,9 @@ io.on('connection', (socket) => {
     await publishEvent('reports_changed', { room: room.name });
   }));
 
-  // Only sockets that joined the room may announce typing in it. Typing is
-  // relayed through Redis so users on other backend instances see it too.
-  function publishTyping(event) {
-    return pubClient.publish(REDIS_CHAT_CHANNEL, JSON.stringify({ type: 'typing', ...event }))
-      .catch((error) => console.error(`Failed to broadcast typing state: ${error.message}`));
-  }
+  features.forEach((feature) => feature.onConnection?.(socket, featureContext));
 
-  socket.on('typing', (data) => {
-    const event = parseTypingEvent({ ...data, senderId: socket.data.userId });
-    if (!event || !socket.rooms.has(event.room)) return;
-
-    if (event.typing) {
-      const now = Date.now();
-      if (!shouldRelayTyping(socket.data.lastTypingAt, now)) return;
-      socket.data.lastTypingAt = now;
-      socket.data.typing = event;
-    } else {
-      socket.data.lastTypingAt = 0;
-      socket.data.typing = null;
-    }
-    publishTyping({ ...event, socketId: socket.id });
-  });
-
-  socket.on('disconnect', () => {
-    // Don't leave a ghost "is typing" behind if the user drops mid-sentence.
-    if (socket.data.typing) publishTyping({ ...socket.data.typing, socketId: socket.id, typing: false });
-    console.log(`User disconnected: ${socket.id}`);
-  });
+  socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
 });
 
 app.get('/health', (_req, res) => {
@@ -398,6 +384,7 @@ app.get('/health', (_req, res) => {
 async function start() {
   try {
     await connectDB();
+    await loadFeatures();
     await Promise.all([pubClient.connect(), subClient.connect()]);
     await subClient.subscribe(REDIS_CHAT_CHANNEL);
 
