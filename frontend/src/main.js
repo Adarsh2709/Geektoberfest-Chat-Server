@@ -23,10 +23,8 @@ const reportsPanel = document.querySelector('#reports-panel');
 const reportsCount = document.querySelector('#reports-count');
 const reportsList = document.querySelector('#reports-list');
 const notice = document.querySelector('#notice');
-const myUserId = document.querySelector('#my-user-id');
-
-myUserId.textContent = shortUserId(senderId);
-myUserId.title = `Your user ID: ${senderId}`;
+const myIdTag = document.querySelector('#my-user-id');
+const defaultName = 'You';
 
 let currentRoom = roomInput.value.trim() || 'general';
 let isConnected = false;
@@ -213,8 +211,52 @@ function removePlaceholder() {
   if (placeholder) placeholder.remove();
 }
 
-function renderMessage(message) {
+function flushOutbox() {
+  if (!socket.connected) return;
+
+  for (const message of outbox) {
+    if (message.inFlight) continue;
+    message.inFlight = true;
+
+    const { clientId, room, sender, text } = message;
+    setPendingLabel(clientId, 'Sending…');
+    socket.timeout(ACK_TIMEOUT_MS).emit(
+      'send_message',
+      { clientId, room, sender, text },
+      (timedOut, response) => {
+        message.inFlight = false;
+
+        if (timedOut) {
+          // No answer came back. Stay queued; the server deduplicates on
+          // clientId, so resending later cannot create a second copy.
+          setPendingLabel(clientId, 'Queued — retrying');
+          return;
+        }
+
+        if (response?.ok) {
+          markDelivered(clientId);
+          return;
+        }
+
+        // A rejected message will not succeed on retry, so hand the text back.
+        discardQueued(clientId);
+        if (!messageInput.value.trim()) messageInput.value = text;
+        showNotice(response?.error || 'Could not send your message.');
+      },
+    );
+  }
+}
+
+function renderMessage(message, { pending = false } = {}) {
   removePlaceholder();
+  const clientId = typeof message.clientId === 'string' ? message.clientId : '';
+  if (clientId && seenClientIds.has(clientId)) {
+    // Already drawn. The echo is itself proof the server stored it.
+    markDelivered(clientId);
+    return;
+  }
+  if (clientId) seenClientIds.add(clientId);
+
   const sender = String(message.sender || 'Someone');
   const text = String(message.text || '');
   const row = document.createElement('article');
@@ -239,7 +281,11 @@ function renderMessage(message) {
   time.textContent = Number.isNaN(date.getTime())
     ? ''
     : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  meta.append(senderName, badge, time);
+  const userId = document.createElement('span');
+  userId.className = 'message-user-id';
+  userId.textContent = shortUserId(message.senderId);
+  userId.title = message.senderId ? `User ID: ${message.senderId}` : '';
+  meta.append(senderName, userId, badge, time);
 
   const bubble = document.createElement('p');
   bubble.className = 'message-bubble';
@@ -260,6 +306,7 @@ function renderMessage(message) {
 
   if (message.deleted) markDeleted(row);
   else refreshRow(row);
+  messageDecorators.forEach((decorate) => decorate(row, message));
   messageList.scrollTop = messageList.scrollHeight;
 }
 
@@ -322,6 +369,7 @@ socket.on('connect', () => {
   reportedOffline = false;
   setConnectionState(true);
   socket.emit('join_room', { room: currentRoom, secret });
+  flushOutbox();
 });
 
 socket.on('disconnect', () => {
@@ -337,6 +385,8 @@ socket.on('connect_error', () => {
 });
 socket.on('identity', ({ userId }) => {
   myUserId = userId;
+  myIdTag.textContent = shortUserId(userId);
+  myIdTag.title = `Your user ID: ${userId}`;
   refreshAllRows();
 });
 socket.on('room_state', (state) => {
@@ -347,7 +397,8 @@ socket.on('room_state', (state) => {
 });
 socket.on('chat_history', (history) => {
   const messages = Array.isArray(history) ? history : [];
-  if (!messages.length) {
+  const hasQueued = outbox.some((message) => message.room === currentRoom);
+  if (!messages.length && !hasQueued) {
     showEmptyState(currentRoom);
     return;
   }
@@ -437,7 +488,17 @@ messageForm.addEventListener('submit', (event) => {
   const sender = nameInput.value.trim() || defaultName;
   if (!text) return;
 
-  socket.emit('send_message', { room: currentRoom, sender, text });
+  const queued = {
+    clientId: crypto.randomUUID(),
+    room: currentRoom,
+    sender,
+    senderId: myUserId,
+    text,
+    timestamp: new Date().toISOString(),
+  };
+
+  outbox.push(queued);
+  renderMessage(queued, { pending: true });
   messageInput.value = '';
   messageInput.focus();
 
@@ -449,5 +510,23 @@ document.querySelector('#join-button').addEventListener('click', joinRoom);
 roomInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') joinRoom();
 });
+
+// Features in src/features/*.js extend the chat without editing this file. A feature's
+// top-level code runs before this file does; its default export is called here, just
+// before connecting, with the context below.
+const messageDecorators = [];
+const featureContext = {
+  socket,
+  serverUrl,
+  elements: { messageList, messageForm, messageInput, nameInput, roomInput, roomTitle },
+  getRoom: () => currentRoom,
+  getName: () => nameInput.value.trim() || defaultName,
+  getUserId: () => myUserId,
+  showNotice,
+  // Called with (row, message) every time a message is drawn.
+  decorateMessage: (decorate) => messageDecorators.push(decorate),
+};
+Object.values(import.meta.glob('./features/*.js', { eager: true }))
+  .forEach((feature) => feature.default?.(featureContext));
 
 socket.connect();

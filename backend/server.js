@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import crypto from 'node:crypto';
+import { readdir } from 'node:fs/promises';
 import express from 'express';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
@@ -95,11 +96,27 @@ async function removeUserFromRoom(room, userId) {
   }
 }
 
+// Feature modules in ./features/*.js extend the server without editing this file. They may export:
+//   setup(context)               once at startup, after the database is connected
+//   onConnection(socket, context) for every new socket
+//   onRedisMessage(payload)      for every event on the chat channel; return true if handled
+const features = [];
+const featureContext = { app, io, pubClient, allowedOrigins, publishEvent };
+
+async function loadFeatures() {
+  const directory = new URL('./features/', import.meta.url);
+  const files = (await readdir(directory)).filter((file) => file.endsWith('.js')).sort();
+  for (const file of files) features.push(await import(new URL(file, directory)));
+  for (const feature of features) await feature.setup?.(featureContext);
+}
+
 subClient.on('message', async (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
 
   try {
     const payload = JSON.parse(message);
+    if (features.some((feature) => feature.onRedisMessage?.(payload))) return;
+
     switch (payload.type) {
       case 'room_state':
         io.to(payload.room).emit('room_state', payload.state);
@@ -114,9 +131,9 @@ subClient.on('message', async (channel, message) => {
         await removeUserFromRoom(payload.room, payload.userId);
         break;
       default: {
-        const { id, room, sender, senderId, text, timestamp } = payload;
+        const { id, room, sender, senderId, text, clientId, timestamp } = payload;
         if (room && typeof sender === 'string' && typeof text === 'string') {
-          io.to(room).emit('receive_message', { id, sender, senderId, text, timestamp });
+          io.to(room).emit('receive_message', { id, sender, senderId, text, clientId, timestamp });
         }
       }
     }
@@ -129,15 +146,18 @@ io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
   // Runs a socket event handler, turning failures into a chat_error for the sender.
-  const handle = (fn) => async (data) => {
+  const handle = (fn) => async (...args) => {
+    // Events sent with an acknowledgement callback report failures through it.
+    const ack = args.find((arg) => typeof arg === 'function');
+    const fail = (message) => (ack ? ack({ ok: false, error: message }) : socket.emit('chat_error', message));
     try {
-      await fn(data);
+      await fn(...args);
     } catch (error) {
       if (error instanceof UserError) {
-        socket.emit('chat_error', error.message);
+        fail(error.message);
       } else {
         console.error(`Socket handler failed: ${error.message}`);
-        socket.emit('chat_error', 'Something went wrong.');
+        fail('Something went wrong.');
       }
     }
   };
@@ -180,6 +200,7 @@ io.on('connection', (socket) => {
         id: String(message._id),
         sender: message.sender,
         senderId: message.senderId,
+        clientId: message.clientId,
         text: message.deleted ? '' : message.text,
         deleted: Boolean(message.deleted),
         timestamp: message.timestamp,
@@ -191,7 +212,12 @@ io.on('connection', (socket) => {
     }
   }));
 
-  socket.on('send_message', handle(async (data) => {
+  socket.on('send_message', handle(async (data, ack) => {
+    // Clients without an ack callback (the CLI client) still get chat_error.
+    const respond = typeof ack === 'function'
+      ? ack
+      : (result) => { if (!result.ok) socket.emit('chat_error', result.error); };
+
     const room = typeof data?.room === 'string' ? data.room.trim().slice(0, 32) : '';
     const sender = typeof data?.sender === 'string' ? data.sender.trim().slice(0, 24) : '';
     const text = typeof data?.text === 'string' ? data.text.trim().slice(0, 1000) : '';
@@ -210,7 +236,7 @@ io.on('connection', (socket) => {
     if (roomDoc?.mutedIds.includes(senderId)) throw new UserError('You are muted in this room.');
 
     try {
-      const newMessage = await Message.create({ room, sender, senderId, text });
+      const newMessage = await Message.create({ room, sender, senderId, text, clientId: clientId || undefined });
       await publishEvent('message', {
         id: String(newMessage._id),
         room,
@@ -220,6 +246,7 @@ io.on('connection', (socket) => {
         clientId,
         timestamp: newMessage.timestamp,
       });
+      respond({ ok: true, clientId, timestamp: newMessage.timestamp });
     } catch (error) {
       if (error?.code === 11000) {
         // Stored by an earlier attempt whose acknowledgement never arrived;
@@ -342,6 +369,8 @@ io.on('connection', (socket) => {
     await publishEvent('reports_changed', { room: room.name });
   }));
 
+  features.forEach((feature) => feature.onConnection?.(socket, featureContext));
+
   socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
 });
 
@@ -355,6 +384,7 @@ app.get('/health', (_req, res) => {
 async function start() {
   try {
     await connectDB();
+    await loadFeatures();
     await Promise.all([pubClient.connect(), subClient.connect()]);
     await subClient.subscribe(REDIS_CHAT_CHANNEL);
 
