@@ -318,6 +318,7 @@ function renderMessage(message, { pending = false } = {}) {
 
   if (message.deleted) markDeleted(row);
   else refreshRow(row);
+  messageDecorators.forEach((decorate) => decorate(row, message));
   messageList.scrollTop = messageList.scrollHeight;
 }
 
@@ -613,6 +614,24 @@ document.querySelector('#join-button').addEventListener('click', joinRoom);
 roomInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') joinRoom();
 });
+
+// Features in src/features/*.js extend the chat without editing this file. A feature's
+// top-level code runs before this file does; its default export is called here, just
+// before the chat opens, with the context below.
+const messageDecorators = [];
+const featureContext = {
+  socket,
+  serverUrl,
+  elements: { messageList, messageForm, messageInput, roomInput, roomTitle },
+  getRoom: () => currentRoom,
+  getName: () => session?.user.username || '',
+  getUserId: () => myUserId,
+  showNotice,
+  // Called with (row, message) every time a message is drawn.
+  decorateMessage: (decorate) => messageDecorators.push(decorate),
+};
+Object.values(import.meta.glob('./features/*.js', { eager: true }))
+  .forEach((feature) => feature.default?.(featureContext));
 
 if (session?.token && session.user) {
   showChat();
