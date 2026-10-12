@@ -15,8 +15,13 @@ export function onConnection(socket, { publishEvent }) {
     .catch((error) => console.error(`Failed to broadcast typing state: ${error.message}`));
 
   socket.on('typing', (data) => {
-    // Typing is attributed to the verified user ID, never to one the client claims.
-    const event = parseTypingEvent({ ...data, senderId: socket.data.userId });
+    // Typing is attributed to the authenticated account, never to a name the client claims.
+    const event = parseTypingEvent({
+      room: data?.room,
+      typing: data?.typing,
+      sender: socket.data.user.username,
+      senderId: socket.data.userId,
+    });
     if (!event || !socket.rooms.has(event.room)) return;
 
     if (event.typing) {

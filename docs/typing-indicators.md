@@ -1,7 +1,7 @@
 # Typing indicators
 
-Clients emit `typing` with `{ room, sender, typing }` while the user types. The server only accepts
-it from sockets that joined the room, attributes it to the verified user ID (never one the client
+Clients emit `typing` with `{ room, typing }` while the user types. The server only accepts it from
+sockets that joined the room, attributes it to the logged-in account (never a name the client
 claims), throttles "started typing" events to one per second per socket, ignores malformed payloads,
 relays it through Redis so every backend instance reaches its clients, and announces "stopped
 typing" if the user disconnects mid-sentence. Typing events are not stored.

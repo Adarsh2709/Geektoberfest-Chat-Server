@@ -4,7 +4,7 @@ const TYPING_REFRESH_MS = 2000;
 const TYPING_IDLE_MS = 3000;
 const TYPING_EXPIRY_MS = 5000;
 
-export default function initTyping({ socket, elements, getRoom, getName }) {
+export default function initTyping({ socket, elements, getRoom }) {
   const { messageForm, messageInput } = elements;
   const indicator = document.createElement('div');
   indicator.id = 'typing-indicator';
@@ -53,7 +53,7 @@ export default function initTyping({ socket, elements, getRoom, getName }) {
   }
 
   function sendTyping(typing) {
-    if (socket.connected) socket.emit('typing', { room: getRoom(), sender: getName(), typing });
+    if (socket.connected) socket.emit('typing', { room: getRoom(), typing });
   }
 
   function stopTyping() {
