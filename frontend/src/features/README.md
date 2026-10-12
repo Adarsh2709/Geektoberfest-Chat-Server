@@ -5,5 +5,5 @@ Every `*.js` file in this folder is loaded by `main.js`, so a feature can be add
 
 - Top-level code runs before `main.js`, which is useful for restoring state into the inputs.
 - The default export, if any, is called just before the socket connects, with a context:
-  `{ socket, serverUrl, elements, getRoom, getName, getUserId, showNotice, decorateMessage }`.
+  `{ socket, serverUrl, elements, getRoom, getName, getUserId, showNotice, decorateMessage }, where getName() is the logged-in username`.
 - `decorateMessage((row, message) => { ... })` is called each time a message is drawn.

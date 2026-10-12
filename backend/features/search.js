@@ -1,9 +1,11 @@
+import { requireAuth } from '../auth.js';
 import { Message } from '../models/user.js';
 import { SEARCH_PAGE_SIZE, buildSearchFilter } from '../utils/search.js';
 
-// GET /api/search?room=&q=&user=&before= finds messages in one room by keyword and/or display
-// name, newest first, with a createdAt cursor for older pages. Removed messages are skipped.
-export async function setup({ app, allowedOrigins }) {
+// GET /api/search?room=&q=&user=&before= finds messages in one room by keyword and/or username,
+// newest first, with a createdAt cursor for older pages. It needs a logged-in user and skips
+// removed messages. CORS is already handled for everything under /api.
+export async function setup({ app }) {
   try {
     await Message.collection.createIndex({ room: 1, createdAt: -1 });
     await Message.collection.createIndex({ room: 1, sender: 1, createdAt: -1 });
@@ -11,12 +13,7 @@ export async function setup({ app, allowedOrigins }) {
     console.error(`Could not create message search indexes: ${error.message}`);
   }
 
-  app.get('/api/search', async (req, res) => {
-    const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-      res.set({ 'Access-Control-Allow-Origin': origin, Vary: 'Origin' });
-    }
-
+  app.get('/api/search', requireAuth, async (req, res) => {
     const { filter, error } = buildSearchFilter(req.query);
     if (error) return res.status(400).json({ error });
 

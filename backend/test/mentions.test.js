@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractMentions, normalizeName } from '../src/lib/mentions.js';
+import { extractMentions, normalizeName } from '../../frontend/src/lib/mentions.js';
 
 test('extractMentions finds lowercased, de-duplicated mentions', () => {
   assert.deepEqual(extractMentions('hi @Alex and @bob, meet @ALEX'), ['alex', 'bob']);

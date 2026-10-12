@@ -1,5 +1,15 @@
 import './search.css';
 
+const sessionKey = 'gather-session';
+
+function sessionToken() {
+  try {
+    return JSON.parse(localStorage.getItem(sessionKey))?.token || '';
+  } catch {
+    return '';
+  }
+}
+
 export default function initSearch({ serverUrl, elements, getRoom, showNotice }) {
   const header = document.querySelector('.conversation-header');
 
@@ -10,7 +20,7 @@ export default function initSearch({ serverUrl, elements, getRoom, showNotice })
     <label class="sr-only" for="search-input">Search messages by keyword</label>
     <input id="search-input" type="search" maxlength="100" placeholder="Search messages" autocomplete="off" />
     <label class="sr-only" for="search-user">Only messages from this user</label>
-    <input id="search-user" type="search" maxlength="24" placeholder="From user" autocomplete="off" />
+    <input id="search-user" type="search" maxlength="24" placeholder="From username" autocomplete="off" />
     <button class="search-button" type="submit" aria-label="Search" title="Search">⌕</button>
   `;
   header.insertBefore(form, header.querySelector('.people-count'));
@@ -74,7 +84,9 @@ export default function initSearch({ serverUrl, elements, getRoom, showNotice })
     if (more && query.before) params.set('before', query.before);
 
     try {
-      const response = await fetch(`${serverUrl}/api/search?${params}`);
+      const response = await fetch(`${serverUrl}/api/search?${params}`, {
+        headers: { Authorization: `Bearer ${sessionToken()}` },
+      });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Search failed.');
 
