@@ -1,4 +1,4 @@
-import { io } from 'socket.io-client';
+﻿import { io } from 'socket.io-client';
 import './style.css';
 
 const serverUrl = import.meta.env.VITE_CHAT_SERVER_URL
@@ -38,6 +38,12 @@ const authPassword = document.querySelector('#auth-password');
 const authSubmit = document.querySelector('#auth-submit');
 const authSwitch = document.querySelector('#auth-switch');
 const authNotice = document.querySelector('#auth-notice');
+
+const presenceLabel = document.createElement('span');
+presenceLabel.className = 'presence-label';
+presenceLabel.textContent = 'Online: waiting for users';
+roleLabel.parentElement.append(presenceLabel);
+
 
 let currentRoom = roomInput.value.trim() || 'general';
 let authMode = 'login';
@@ -110,7 +116,7 @@ function setPendingLabel(clientId, text) {
 function requeueOutbox() {
   for (const message of outbox) {
     message.inFlight = false;
-    setPendingLabel(message.clientId, 'Queued — offline');
+    setPendingLabel(message.clientId, 'Queued â€” offline');
   }
 }
 
@@ -146,14 +152,14 @@ function flushOutbox() {
     message.inFlight = true;
 
     const { clientId, room, text } = message;
-    setPendingLabel(clientId, 'Sending…');
+    setPendingLabel(clientId, 'Sendingâ€¦');
     socket.timeout(ACK_TIMEOUT_MS).emit('send_message', { clientId, room, text }, (timedOut, response) => {
       message.inFlight = false;
 
       if (timedOut) {
         // No answer came back. Stay queued; the server deduplicates on
         // clientId, so resending later cannot create a second copy.
-        setPendingLabel(clientId, 'Queued — retrying');
+        setPendingLabel(clientId, 'Queued â€” retrying');
         return;
       }
 
@@ -188,7 +194,7 @@ function refreshRow(row) {
   const badges = [];
   if (role !== 'member') badges.push(role);
   if (isMuted(authorId)) badges.push('muted');
-  row.querySelector('.message-badge').textContent = badges.join(' · ');
+  row.querySelector('.message-badge').textContent = badges.join(' Â· ');
 
   const actions = row.querySelector('.message-actions');
   actions.replaceChildren();
@@ -231,7 +237,7 @@ function showPlaceholder(title, detail, loading = false) {
   const spark = document.createElement('span');
   spark.className = 'welcome-spark';
   spark.setAttribute('aria-hidden', 'true');
-  spark.textContent = '✳';
+  spark.textContent = 'âœ³';
 
   const heading = document.createElement('div');
   heading.className = 'welcome-title';
@@ -256,6 +262,37 @@ function removePlaceholder() {
   const placeholder = messageList.querySelector('[data-placeholder]');
   if (placeholder) placeholder.remove();
 }
+
+
+function renderReactions(row, reactions = []) {
+  const display = row.querySelector('.message-reactions');
+  if (!display) return;
+
+  display.replaceChildren();
+
+  reactions.forEach((reaction) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'reaction-button';
+    button.textContent = `${reaction.emoji} ${reaction.userIds.length}`;
+    button.title = 'Click to toggle your reaction';
+
+    if (reaction.userIds.includes(myUserId)) {
+      button.classList.add('is-selected');
+    }
+
+    button.addEventListener('click', () => {
+      socket.emit('toggle_reaction', {
+        room: currentRoom,
+        messageId: row.dataset.messageId,
+        emoji: reaction.emoji,
+      });
+    });
+
+    display.append(button);
+  });
+}
+
 
 function renderMessage(message, { pending = false } = {}) {
   const clientId = typeof message.clientId === 'string' ? message.clientId : '';
@@ -302,19 +339,53 @@ function renderMessage(message, { pending = false } = {}) {
   const bubble = document.createElement('p');
   bubble.className = 'message-bubble';
   bubble.textContent = text;
+
+  const reactionsDisplay = document.createElement('div');
+  reactionsDisplay.className = 'message-reactions';
+
   const actions = document.createElement('div');
   actions.className = 'message-actions';
-  content.append(meta, bubble, actions);
+
+  const reactionPicker = document.createElement('div');
+  reactionPicker.className = 'reaction-picker';
+
+  ['ðŸ‘', 'â¤ï¸', 'ðŸ˜‚', 'ðŸ˜®', 'ðŸ˜¢', 'ðŸŽ‰'].forEach((emoji) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'reaction-picker-button';
+    button.textContent = emoji;
+    button.title = `React with ${emoji}`;
+
+    button.addEventListener('click', () => {
+      if (!row.dataset.messageId || row.classList.contains('is-pending')) return;
+
+      socket.emit('toggle_reaction', {
+        room: currentRoom,
+        messageId: row.dataset.messageId,
+        emoji,
+      });
+    });
+
+    reactionPicker.append(button);
+  });
+
+  content.append(meta, bubble, reactionsDisplay, reactionPicker, actions);
   row.append(avatar, content);
   if (pending && clientId) {
     row.classList.add('is-pending');
     const status = document.createElement('span');
     status.className = 'message-status';
-    status.textContent = socket.connected ? 'Sending…' : 'Queued — offline';
+    status.textContent = socket.connected ? 'Sendingâ€¦' : 'Queued â€” offline';
     meta.append(status);
     pendingRows.set(clientId, row);
   }
   messageList.append(row);
+  messageList.append(row);
+
+  renderReactions(row, message.reactions || []);
+
+  if (message.deleted) markDeleted(row);
+  else refreshRow(row);
 
   if (message.deleted) markDeleted(row);
   else refreshRow(row);
@@ -483,6 +554,7 @@ socket.on('room_state', (state) => {
   refreshAllRows();
   if (isStaff()) socket.emit('list_reports', { room: currentRoom });
 });
+
 socket.on('chat_history', (history) => {
   const messages = Array.isArray(history) ? history : [];
   clearMessages();
@@ -495,12 +567,38 @@ socket.on('chat_history', (history) => {
     if (message.room === currentRoom) renderMessage(message, { pending: true });
   }
 });
+
+socket.on('room_presence', ({ room, users }) => {
+  if (room !== currentRoom || !Array.isArray(users)) return;
+
+  const names = users.map((user) =>
+    user.id === myUserId ? `${user.username} (you)` : user.username
+  );
+
+  presenceLabel.textContent = names.length
+    ? `Online (${names.length}): ${names.join(', ')}`
+    : 'No users online';
+});
+
+
 socket.on('receive_message', (message) => renderMessage(message));
+
+socket.on('message_reactions', ({ messageId, reactions }) => {
+  const row = [...messageList.querySelectorAll('.message-row')]
+    .find((item) => item.dataset.messageId === messageId);
+
+  if (!row) return;
+
+  row.dataset.reactions = JSON.stringify(reactions);
+  renderReactions(row, reactions);
+});
+
 socket.on('message_deleted', ({ messageId }) => {
   messageList.querySelectorAll('.message-row').forEach((row) => {
     if (row.dataset.messageId === messageId) markDeleted(row);
   });
 });
+
 socket.on('removed_from_room', ({ room }) => {
   if (room !== currentRoom) return;
   isRemoved = true;
