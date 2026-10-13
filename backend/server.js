@@ -6,6 +6,7 @@ import cors from 'cors';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
 import http from 'node:http';
+import { readdir } from 'node:fs/promises';
 import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
 import { Message } from './models/user.js';
@@ -94,11 +95,27 @@ async function removeUserFromRoom(room, userId) {
   }
 }
 
+// Feature modules in ./features/*.js extend the server without editing this file. They may export:
+//   setup(context)                once at startup, after the database is connected
+//   onConnection(socket, context) for every new, authenticated socket
+//   onRedisMessage(payload)       for every event on the chat channel; return true if handled
+const features = [];
+const featureContext = { app, io, pubClient, subClient, allowedOrigins, publishEvent };
+
+async function loadFeatures() {
+  const directory = new URL('./features/', import.meta.url);
+  const files = (await readdir(directory)).filter((file) => file.endsWith('.js')).sort();
+  for (const file of files) features.push(await import(new URL(file, directory)));
+  for (const feature of features) await feature.setup?.(featureContext);
+}
+
 subClient.on('message', async (channel, message) => {
   if (channel !== REDIS_CHAT_CHANNEL) return;
 
   try {
     const payload = JSON.parse(message);
+    if (features.some((feature) => feature.onRedisMessage?.(payload))) return;
+
     switch (payload.type) {
       case 'room_state':
         io.to(payload.room).emit('room_state', payload.state);
@@ -436,26 +453,26 @@ io.on('connection', (socket) => {
     await publishEvent('reports_changed', { room: room.name });
   }));
 
+  features.forEach((feature) => feature.onConnection?.(socket, featureContext));
 
-socket.on('disconnecting', async () => {
-  const rooms = [...socket.rooms].filter(
-    (room) => room !== socket.id && room !== `user:${senderId}`,
-  );
+  socket.on('disconnecting', async () => {
+    const rooms = [...socket.rooms].filter(
+      (room) => room !== socket.id && room !== `user:${senderId}`,
+    );
 
-  for (const room of rooms) {
-    try {
-      await broadcastRoomPresence(room, socket.id);
-    } catch (error) {
-      console.error(`Failed to update room presence: ${error.message}`);
+    for (const room of rooms) {
+      try {
+        await broadcastRoomPresence(room, socket.id);
+      } catch (error) {
+        console.error(`Failed to update room presence: ${error.message}`);
+      }
     }
-  }
-});
+  });
 
-socket.on('disconnect', () => {
-  console.log(`User disconnected: ${sender} (${socket.id})`);
-});
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${sender} (${socket.id})`);
+  });
 
-});
 
 app.get('/health', (_req, res) => {
   const healthy = mongoose.connection.readyState === 1
@@ -468,6 +485,7 @@ async function start() {
   try {
     getJwtSecret();
     await connectDB();
+    await loadFeatures();
     await Promise.all([pubClient.connect(), subClient.connect()]);
     await subClient.subscribe(REDIS_CHAT_CHANNEL);
 

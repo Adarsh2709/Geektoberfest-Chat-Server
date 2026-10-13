@@ -68,7 +68,7 @@ function readCredentials(body) {
   };
 }
 
-async function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const [scheme, token] = (req.get('authorization') || '').split(' ');
   const user = scheme === 'Bearer' ? await userFromToken(token) : null;
   if (!user) return res.status(401).json({ error: 'Please log in again.' });

@@ -1,0 +1,5 @@
+.rail-bottom { flex-wrap: wrap; }
+#connection-label[data-state="reconnecting"] { color: #a46a48; }
+#connection-label[data-state="disconnected"] { color: #a4473b; font-weight: 700; }
+#connection-label[data-state="reconnected"] { color: #3d694c; }
+.retry-connection { margin-left: auto; padding: 3px 10px; }
