@@ -1,7 +1,12 @@
 const { register, joinRoom, uniqueName, pause } = require('./helpers/client.cjs');
 
 const newRoom = () => uniqueName('room');
-const say = (client, room, text, clientId) => client.emitWithAck('send_message', { room, text, clientId });
+const say = async (client, room, text, clientId) => {
+  const ack = await client.emitWithAck('send_message', { room, text, clientId });
+  if (ack?.timedOut) throw new Error(`Timed out sending message ${clientId || '(without a client ID)'}.`);
+  if (!ack?.ok) throw new Error(`Message was rejected: ${ack?.error || 'unknown error'}`);
+  return ack;
+};
 
 describe('messaging', () => {
   test('a message is acknowledged, broadcast to the room and stored with the account as sender', async () => {
@@ -110,8 +115,8 @@ describe('moderation', () => {
     o.socket.emit('mute_user', { room, targetId: member.id });
     await m.waitFor('room_state', (state) => state.mutedIds.includes(member.id));
 
-    const blocked = await say(m, room, 'muted talk', 'mu-1');
-    expect(blocked.ok).toBe(false);
+    const blocked = await m.emitWithAck('send_message', { room, text: 'muted talk', clientId: 'mu-1' });
+    expect(blocked).toMatchObject({ ok: false, error: 'You are muted in this room.' });
 
     m.events.length = 0; // only a state sent after the unmute counts
     o.socket.emit('unmute_user', { room, targetId: member.id });
@@ -368,8 +373,9 @@ describe('pagination', () => {
     const o = await joinRoom(owner, room);
     const m = await joinRoom(member, room);
 
-    // Send 21 messages so there will be one in the older page.
-    for (let i = 1; i <= 20; i++) await say(o, room, `msg-${i}`, `pg-del-${i}`);
+    // Send 21 messages so there will be one member-authored message in the older page.
+    await say(m, room, 'msg-1', 'pg-del-1');
+    for (let i = 2; i <= 20; i++) await say(o, room, `msg-${i}`, `pg-del-${i}`);
     await say(o, room, 'visible', 'pg-del-21');
 
     // We need the ID of msg-1 via chat_history. Join a fresh client.
@@ -384,6 +390,7 @@ describe('pagination', () => {
 
     // Delete the oldest message we can find.
     const target = older.messages[0];
+    expect(target.senderId).toBe(member.id);
     o.socket.emit('delete_message', { room, messageId: target.id });
     await o.waitFor('message_deleted', (payload) => payload.messageId === target.id);
 
