@@ -1,4 +1,4 @@
-﻿import { io } from 'socket.io-client';
+import { io } from 'socket.io-client';
 import './style.css';
 
 const serverUrl = import.meta.env.VITE_CHAT_SERVER_URL
@@ -116,7 +116,7 @@ function setPendingLabel(clientId, text) {
 function requeueOutbox() {
   for (const message of outbox) {
     message.inFlight = false;
-    setPendingLabel(message.clientId, 'Queued â€” offline');
+    setPendingLabel(message.clientId, 'Queued — offline');
   }
 }
 
@@ -152,14 +152,14 @@ function flushOutbox() {
     message.inFlight = true;
 
     const { clientId, room, text } = message;
-    setPendingLabel(clientId, 'Sendingâ€¦');
+    setPendingLabel(clientId, 'Sending…');
     socket.timeout(ACK_TIMEOUT_MS).emit('send_message', { clientId, room, text }, (timedOut, response) => {
       message.inFlight = false;
 
       if (timedOut) {
         // No answer came back. Stay queued; the server deduplicates on
         // clientId, so resending later cannot create a second copy.
-        setPendingLabel(clientId, 'Queued â€” retrying');
+        setPendingLabel(clientId, 'Queued — retrying');
         return;
       }
 
@@ -375,7 +375,7 @@ function renderMessage(message, { pending = false } = {}) {
     row.classList.add('is-pending');
     const status = document.createElement('span');
     status.className = 'message-status';
-    status.textContent = socket.connected ? 'Sendingâ€¦' : 'Queued â€” offline';
+    status.textContent = socket.connected ? 'Sending…' : 'Queued — offline';
     meta.append(status);
     pendingRows.set(clientId, row);
   }
