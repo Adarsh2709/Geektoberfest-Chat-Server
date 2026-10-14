@@ -453,6 +453,7 @@ io.on('connection', (socket) => {
     await publishEvent('reports_changed', { room: room.name });
   }));
 
+  
   features.forEach((feature) => feature.onConnection?.(socket, featureContext));
 
   socket.on('disconnecting', async () => {
@@ -472,13 +473,16 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${sender} (${socket.id})`);
   });
-
+}); // Closes io.on('connection')
 
 app.get('/health', (_req, res) => {
   const healthy = mongoose.connection.readyState === 1
     && pubClient.status === 'ready'
     && subClient.status === 'ready';
-  res.status(healthy ? 200 : 503).json({ status: healthy ? 'OK' : 'Unavailable' });
+
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'OK' : 'Unavailable',
+  });
 });
 
 async function start() {
