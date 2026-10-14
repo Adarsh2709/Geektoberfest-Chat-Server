@@ -19,8 +19,17 @@ const messageRateLimit = testOnlyLimit('TEST_MESSAGE_RATE_LIMIT_MAX', DEFAULT_ME
 const connectionRateLimit = testOnlyLimit('TEST_CONNECTION_RATE_LIMIT_MAX', DEFAULT_CONNECTION_RATE_LIMIT);
 
 const httpLimiter = createRateLimiter({ windowMs: 60_000, max: 120 });
-const connectionLimiter = createRateLimiter({ windowMs: 60_000, max: connectionRateLimit });
-const messageLimiter = createRateLimiter({ windowMs: 10_000, max: messageRateLimit });
+
+const connectionLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: connectionRateLimit,
+});
+
+const messageLimiter = createRateLimiter({
+  windowMs: 10_000,
+  max: messageRateLimit,
+});
+
 const joinLimiter = createRateLimiter({ windowMs: 10_000, max: 20 });
 
 let shuttingDown = false;
